@@ -1,22 +1,22 @@
-# 🚌 UrbanFlow — Plataforma de Engenharia de Dados para Mobilidade Urbana
+# UrbanFlow — Plataforma de Engenharia de Dados para Mobilidade Urbana
 
 > Protótipo de Ciclo de Vida de Engenharia de Dados — Parte 1: Planejamento Arquitetural
 
 ---
 
-## 👥 Integrantes
+## Integrantes
 
 | Nome Completo | Matrícula |
 |---|---|
-| *(Integrante 1)* | *(matrícula)* |
-| *(Integrante 2)* | *(matrícula)* |
+| *(Alice Moreira Marques)* | *(22306521)* |
+| *(Eduardo Sousa Hirle de Freitas)* | *(22303593)* |
 
 **Disciplina:** Engenharia de Dados  
 **Data de Entrega:** 30/04/2026
 
 ---
 
-## 📁 Estrutura do Repositório
+## Estrutura do Repositório
 
 ```
 mobilidade-urbana-dataeng/
@@ -35,7 +35,7 @@ mobilidade-urbana-dataeng/
 
 ---
 
-## 🗺️ Visão Geral Rápida
+## Visão Geral Rápida
 
 O projeto **UrbanFlow** simula a plataforma de dados de uma empresa de mobilidade urbana que opera **ônibus, metrô e bicicletas compartilhadas** em uma cidade de médio porte. O objetivo é construir uma infraestrutura de dados capaz de:
 
@@ -59,7 +59,7 @@ O projeto **UrbanFlow** simula a plataforma de dados de uma empresa de mobilidad
 
 ---
 
-## 📚 Documentação Completa
+## Documentação Completa
 
 Acesse cada seção pela pasta [`docs/`](./docs/):
 
