@@ -381,39 +381,91 @@ LIMIT 10;
 
 ---
 
-## 5.7 Correntes Transversais
+## 5.7 Correntes Transversais do Ciclo de Vida
+
+As correntes transversais são práticas e componentes que perpassam **todas as etapas** do ciclo de vida de engenharia de dados — da ingestão ao consumo — e garantem que a plataforma seja segura, observável, governada e reproduzível.
 
 ### 5.7.1 Segurança e Privacidade
 
-| Aspecto | Implementação |
-|---|---|
-| **Pseudoanonimização** | `card_id` → `card_hash` SHA-256 no simulador, antes do armazenamento |
-| **Acesso ao MinIO** | Políticas por bucket: Bronze para pipelines; Gold somente leitura para Superset |
-| **Secrets no Airflow** | Credenciais em Airflow Connections/Variables (não hardcoded no código) |
-| **Autenticação Superset** | Login local com roles (Admin, Analyst, Viewer) |
+A segurança é aplicada em cada camada da plataforma, seguindo o princípio do **menor privilégio**: cada componente acessa apenas o que precisa.
 
-### 5.7.2 Monitoramento e Alertas
+| Aspecto | Implementação | Justificativa |
+|---|---|---|
+| **Pseudoanonimização de cartões** | `card_id` do passageiro → `card_hash` SHA-256 no próprio simulador, **antes** de qualquer gravação no MinIO | Conformidade com LGPD: dados pessoais nunca são armazenados em claro na plataforma |
+| **Segregação de acesso no MinIO** | Bucket Bronze: leitura/escrita para pipelines de ingestão. Bucket Gold: somente leitura para Superset e DuckDB | Impede que consumidores sobrescrevam dados da camada de produção |
+| **Secrets no Airflow** | Credenciais de banco e API armazenadas em `Airflow Connections` e `Variables` — nunca hardcoded no código-fonte | Secrets fora do repositório Git; rotação de credenciais sem alteração de código |
+| **Autenticação no Superset** | Login local com sistema de roles: `Admin`, `Analyst`, `Viewer` — cada role acessa apenas os dashboards pertinentes | Controle de acesso por perfil: gestor operacional não vê dados financeiros brutos |
+| **Variáveis de ambiente no Docker** | Senhas e endpoints definidos em `.env` (listado no `.gitignore`) | Nenhuma credencial é versionada no repositório público |
 
-Sem Prometheus/Grafana (overhead desnecessário no protótipo). Monitoramento feito via:
-- **Airflow UI:** histórico de execuções, duração, status de cada task.
-- **Alertas por e-mail:** configurados no Airflow para falhas após 3 tentativas.
-- **dbt test results:** log de testes após cada materialização Gold.
-- **Contagem de linhas nos scripts pandas:** logs de registros lidos, rejeitados e escritos em cada etapa.
+### 5.7.2 Gestão de Dados e Qualidade
 
-### 5.7.3 Governança e Documentação
+A gestão de dados define **contratos** entre produtores e consumidores, garantindo que os dados Gold sejam confiáveis.
 
-- **dbt docs:** `dbt docs generate` cria documentação HTML com linhagem completa dos modelos Silver → Gold.
-- **README e diagramas Mermaid:** documentação da arquitetura versionada no GitHub junto com o código.
-- **Git como fonte da verdade:** todos os DAGs, scripts Python e modelos dbt versionados.
+| Mecanismo | Onde atua | O que garante |
+|---|---|---|
+| **Schemas documentados no README** | Ingestão (Bronze) | Todo produtor de dados conhece o schema esperado antes de publicar |
+| **Validações pandas** | Bronze → Silver | Campos obrigatórios não nulos, duplicatas removidas, outliers sinalizados |
+| **Testes dbt** (`not_null`, `unique`, `accepted_values`, `relationships`) | Silver → Gold | Integridade referencial e completude garantidas antes do dado chegar ao consumidor |
+| **Contagem de linhas por etapa** | Scripts pandas | Log de `linhas_lidas / linhas_rejeitadas / linhas_escritas` para rastreabilidade |
+| **Bronze imutável** | Storage | Dado bruto nunca é sobrescrito — auditoria e reprocessamento sempre possíveis |
+| **Particionamento por data** | Bronze e Silver | Reprocessar apenas uma partição específica sem impactar o histórico |
 
-### 5.7.4 DataOps e Reprodutibilidade
+### 5.7.3 DataOps e Versionamento
+
+DataOps aplica práticas de DevOps ao desenvolvimento de pipelines de dados, tornando o ciclo de entrega mais rápido e confiável.
 
 | Prática | Implementação |
 |---|---|
-| **Controle de versão** | Todo código no GitHub (DAGs, scripts, modelos dbt, docker-compose) |
-| **Ambiente reproduzível** | `docker compose up` sobe todo o ambiente em qualquer máquina com Docker |
-| **Testes de dados** | dbt tests (`not_null`, `unique`) + validações nos scripts pandas |
-| **Documentação como código** | `README.md` e diagramas Mermaid versionados junto ao código |
+| **Controle de versão** | Todo código no GitHub: DAGs Airflow, scripts Python, modelos dbt, `docker-compose.yml` |
+| **Ambiente reproduzível** | `docker compose up` sobe o ambiente completo em qualquer máquina com Docker instalado — sem dependência de configuração manual |
+| **Testes automatizados de dados** | `dbt test` executa após cada materialização Gold; scripts pandas registram rejeições em log |
+| **Separação de ambientes** | `.env` separa configurações de dev/prod; endpoints do MinIO trocam sem alterar lógica |
+| **Documentação como código** | `README.md`, diagramas Mermaid e `dbt docs` são versionados junto ao código — nunca ficam desatualizados |
+| **CI/CD (planejado para Parte 2)** | GitHub Actions para executar `dbt test` e testes de validação a cada Pull Request |
+
+### 5.7.4 Monitoramento e Observabilidade
+
+O monitoramento foca em **detectar falhas antes que impactem os consumidores**, sem a sobrecarga de Prometheus/Grafana para um protótipo.
+
+```mermaid
+graph LR
+    subgraph MONITORED["Componentes Monitorados"]
+        A["Apache Airflow\nDAGs e Tasks"]
+        B["Scripts pandas\nBronze → Silver"]
+        C["dbt Core\nSilver → Gold"]
+        D["MinIO\nBuckets e objetos"]
+    end
+
+    subgraph ALERTAS["Mecanismos de Alerta"]
+        E["Airflow UI\nHistórico e status"]
+        F["E-mail Alert\nFalha após 3 retries"]
+        G["dbt test log\nResultados por run"]
+        H["Log de linhas\nLidas/rejeitadas/escritas"]
+    end
+
+    A --> E
+    A --> F
+    B --> H
+    C --> G
+    D --> E
+```
+
+| Sinal monitorado | Mecanismo | Ação |
+|---|---|---|
+| DAG com falha | Airflow `retries=3` + alerta por e-mail | Re-execução manual ou investigação via Airflow UI |
+| Taxa de rejeição pandas > 5% | Log da etapa Silver | Alerta manual — indica problema na fonte |
+| Teste dbt falhou | `dbt test` retorna erro e interrompe a run | Pipeline Gold não é materializado com dados inválidos |
+| Partição Bronze ausente | DAG de transformação valida existência antes de processar | DAG falha explicitamente com mensagem descritiva |
+
+### 5.7.5 Governança e Catálogo de Dados
+
+| Componente | Implementação | O que entrega |
+|---|---|---|
+| **dbt docs** | `dbt docs generate && dbt docs serve` | Documentação HTML com linhagem visual de todos os modelos Silver → Gold, descrição de colunas e resultados de testes |
+| **README como contrato** | Schemas de todas as fontes documentados em `02-definicao-dados.md` | Produtor e consumidor compartilham o mesmo entendimento do dado |
+| **Glossário de termos** | Definições no README: `OTP`, `headway`, `card_hash`, `trip_id` | Elimina ambiguidade entre áreas de negócio |
+| **Nomenclatura padronizada** | Prefixos `fct_`, `dim_`, `agg_`, `kpi_`, `rpt_` nos modelos Gold | Qualquer pessoa identifica o tipo da tabela pelo nome |
+| **Git como fonte da verdade** | Toda evolução de schema é um commit rastreável | Histórico completo de mudanças nos contratos de dados |
 
 ---
 
