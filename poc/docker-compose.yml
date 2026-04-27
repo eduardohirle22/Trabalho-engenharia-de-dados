@@ -1,0 +1,157 @@
+version: "3.9"
+
+# UrbanFlow Data Platform — Docker Compose
+# Sobe o ambiente completo com: docker compose up -d
+# Requisito: ~3 GB RAM, Docker instalado
+
+services:
+
+  # ─── Object Storage (Bronze / Silver / Gold) ────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: urbanflow-minio
+    ports:
+      - "9000:9000"   # API S3-compatível (boto3, dbt-duckdb httpfs)
+      - "9001:9001"   # Console web (http://localhost:9001)
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Cria buckets automaticamente na inicialização ──────────────────────────
+  minio-setup:
+    image: minio/mc:latest
+    container_name: urbanflow-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin;
+        mc mb --ignore-existing local/urbanflow-bronze;
+        mc mb --ignore-existing local/urbanflow-silver;
+        mc mb --ignore-existing local/urbanflow-gold;
+        mc anonymous set download local/urbanflow-gold;
+        echo 'Buckets criados com sucesso.';
+      "
+
+  # ─── Banco de dados legado (PostgreSQL) ─────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: urbanflow-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-urbanflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urbanflow}
+      POSTGRES_DB: ${POSTGRES_DB:-bilhetagem}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urbanflow -d bilhetagem"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Apache Airflow ──────────────────────────────────────────────────────────
+  airflow-init:
+    image: apache/airflow:2.9.0
+    container_name: urbanflow-airflow-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://urbanflow:urbanflow@postgres/bilhetagem
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-urbanflow-secret-key-2026}
+      _AIRFLOW_WWW_USER_CREATE: "True"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    entrypoint: /bin/bash
+    command: -c "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@urbanflow.local"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+
+  airflow-webserver:
+    image: apache/airflow:2.9.0
+    container_name: urbanflow-airflow-webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"   # UI Airflow: http://localhost:8080 (admin/admin)
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://urbanflow:urbanflow@postgres/bilhetagem
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-urbanflow-secret-key-2026}
+      # Conexões com MinIO (via Airflow Variables)
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - ./simuladores:/opt/airflow/scripts/simuladores
+    command: webserver
+
+  airflow-scheduler:
+    image: apache/airflow:2.9.0
+    container_name: urbanflow-airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://urbanflow:urbanflow@postgres/bilhetagem
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-urbanflow-secret-key-2026}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - ./simuladores:/opt/airflow/scripts/simuladores
+    command: scheduler
+
+  # ─── Apache Superset ─────────────────────────────────────────────────────────
+  superset:
+    image: apache/superset:latest
+    container_name: urbanflow-superset
+    depends_on:
+      - postgres
+    ports:
+      - "8088:8088"   # UI Superset: http://localhost:8088 (admin/admin)
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-urbanflow-superset-key}
+      DATABASE_URL: postgresql+psycopg2://urbanflow:urbanflow@postgres/bilhetagem
+    volumes:
+      - superset_data:/app/superset_home
+    command: >
+      /bin/bash -c "
+        superset db upgrade &&
+        superset fab create-admin --username admin --firstname Admin --lastname User --email admin@urbanflow.local --password admin &&
+        superset init &&
+        superset run -h 0.0.0.0 -p 8088
+      "
+
+volumes:
+  minio_data:
+  postgres_data:
+  airflow_logs:
+  superset_data:
+
+networks:
+  default:
+    name: urbanflow-network

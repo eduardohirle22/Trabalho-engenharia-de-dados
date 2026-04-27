@@ -1,0 +1,29 @@
+ETAPA 2 — Pipeline Bronze → Silver
+────────────────────────────────────────
+GPS — Lidas: 300 | Escritas: 300 | Outliers: 0
+Catracas — Lidas: 150 | Escritas: 150
+
+Schema Silver GPS:
+vehicle_id                        str
+line_id                           str
+direction                         str
+lat                           float64
+lon                           float64
+speed_kmh                     float64
+occupancy_pct                   int64
+engine_on                        bool
+door_open                        bool
+status                            str
+timestamp         datetime64[us, UTC]
+schema_version                    str
+is_outlier                       bool
+tipo                              str
+capacidade                      int64
+_processed_at     datetime64[us, UTC]
+_source                           str
+
+Primeiras 3 linhas:
+  vehicle_id line_id direction        lat        lon  speed_kmh  occupancy_pct  engine_on  door_open    status                        timestamp schema_version  is_outlier    tipo  capacidade                    _processed_at            _source
+0   BUS-0001    L001       IDA -16.775691 -49.197451       21.4             77       True      False  on_route 2026-04-27 17:54:20.456025+00:00            1.0       False  onibus          60 2026-04-27 17:54:20.569633+00:00  bronze/gps_onibus
+1   BUS-0002    L002     VOLTA -16.797223 -49.209039       49.0             68       True      False   at_stop 2026-04-27 17:54:20.456025+00:00            1.0       False  onibus          80 2026-04-27 17:54:20.569633+00:00  bronze/gps_onibus
+2   BUS-0003    L003       IDA -16.572106 -49.199271       45.1             87       True      False  on_route 2026-04-27 17:54:20.456025+00:00            1.0       False  onibus         100 2026-04-27 17:54:20.569633+00:00  bronze/gps_onibus
