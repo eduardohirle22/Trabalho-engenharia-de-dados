@@ -2,9 +2,9 @@
 
 ## 3.1 Abordagem: Domain-Driven Design aplicado à Engenharia de Dados
 
-A organização dos dados e serviços do UrbanFlow segue os princípios do **Domain-Driven Design (DDD)**, adaptados para engenharia de dados. Cada **domínio** representa uma área de negócio coesa com **ownership claro** sobre seus dados, serviços e pipelines. Isso reduz o acoplamento entre áreas e facilita a evolução independente de cada parte do sistema.
+A organização dos dados e serviços do UrbanFlow segue princípios do **Domain-Driven Design (DDD)** adaptados à engenharia de dados. Cada **domínio** representa uma área de negócio coesa com **ownership claro** sobre seus dados e pipelines. Isso reduz o acoplamento entre áreas e facilita a evolução independente de cada parte do sistema.
 
-O projeto identifica **5 domínios**, sendo 3 de negócio e 2 transversais.
+O projeto identifica **4 domínios**: 3 de negócio e 1 transversal de infraestrutura.
 
 ---
 
@@ -12,44 +12,40 @@ O projeto identifica **5 domínios**, sendo 3 de negócio e 2 transversais.
 
 ```mermaid
 graph TD
-    subgraph SHARED["🔧 Infraestrutura de Dados — Compartilhado (Transversal)"]
-        INF_ING["Serviço de Ingestão"]
-        INF_QUA["Serviço de Qualidade"]
-        INF_CAT["Serviço de Catálogo"]
-        INF_MON["Serviço de Monitoramento"]
+    subgraph INFRA["🔧 Infraestrutura de Dados — Transversal"]
+        INF_ING["Serviço de Ingestão\n(Airflow + Scripts)"]
+        INF_QUA["Serviço de Qualidade\n(dbt tests)"]
+        INF_MON["Serviço de Monitoramento\n(Airflow alertas)"]
     end
 
     subgraph DOM1["🚌 Domínio: Operações de Frota"]
-        D1A["Rastreamento GPS em Tempo Real"]
-        D1B["Gestão de Escalas e Turnos"]
-        D1C["Controle de Manutenção"]
+        D1A["Rastreamento de Posições GPS"]
+        D1B["Controle de Manutenção"]
     end
 
     subgraph DOM2["🎫 Domínio: Bilhetagem e Tarifas"]
-        D2A["Validação de Bilhetes (Streaming)"]
+        D2A["Validação de Bilhetes"]
         D2B["Consolidação de Receita"]
-        D2C["Gestão de Cartões e Perfis"]
     end
 
     subgraph DOM3["🚲 Domínio: Mobilidade Ativa"]
         D3A["Monitoramento de Estações"]
         D3B["Registro de Trips de Bicicleta"]
-        D3C["Rebalanceamento de Frota"]
     end
 
     subgraph DOM4["📊 Domínio: Analytics e Planejamento"]
-        D4A["Indicadores Operacionais (KPIs)"]
+        D4A["KPIs Operacionais"]
         D4B["Análise de Demanda"]
         D4C["Relatórios Regulatórios"]
     end
 
-    SHARED -->|"dados brutos validados"| DOM1
-    SHARED -->|"dados brutos validados"| DOM2
-    SHARED -->|"dados brutos validados"| DOM3
+    INFRA -->|"dados brutos validados"| DOM1
+    INFRA -->|"dados brutos validados"| DOM2
+    INFRA -->|"dados brutos validados"| DOM3
 
-    DOM1 -->|"dados Silver curados"| DOM4
-    DOM2 -->|"dados Silver curados"| DOM4
-    DOM3 -->|"dados Silver curados"| DOM4
+    DOM1 -->|"Silver curado"| DOM4
+    DOM2 -->|"Silver curado"| DOM4
+    DOM3 -->|"Silver curado"| DOM4
 ```
 
 ---
@@ -59,85 +55,80 @@ graph TD
 ### 3.3.1 Domínio: Operações de Frota 🚌
 
 **Owner:** Gerência de Operações  
-**Dados produzidos:** Posição atual de cada veículo, status (em rota / na parada / atrasado), velocidade, taxa de ocupação, histórico de manutenção.
+**Dados produzidos:** Posição de cada veículo, status (em rota / atrasado), velocidade, taxa de ocupação.
 
 | Serviço | Responsabilidade | Entrada | Saída |
 |---|---|---|---|
-| **Rastreamento GPS em Tempo Real** | Receber, validar e persistir posições GPS dos 850 ônibus; calcular atraso vs. horário previsto | Tópico Kafka `gps-onibus` | Silver: `gps_onibus_clean` · Alertas de atraso |
-| **Gestão de Escalas e Turnos** | Manter grade horária das linhas e cruzar com dados reais de GPS | ERP (batch semanal) + GPS (streaming) | Tabela `dim_horarios` · OTP (On-Time Performance) |
-| **Controle de Manutenção** | Registrar ocorrências, calcular MTBF, alertar veículos próximos de revisão | CMMS (batch diário) + GPS (status) | `dim_veiculos` com status de manutenção |
+| **Rastreamento GPS** | Consolidar posições GPS diárias; calcular atraso vs. horário previsto | Bronze `gps_onibus` | Silver: `gps_onibus_clean` |
+| **Controle de Manutenção** | Cruzar registros de ocorrências com veículos ativos | Bronze `viagens` | `dim_veiculos` com status |
 
-**Dados gerados para a camada Gold:**
-- `fct_posicoes_horarias` — posição média de cada veículo por hora
+**Produz para Gold:**
+- `fct_posicoes_diarias` — posição média por veículo/hora/dia
 - `kpi_otp_diario` — % de viagens dentro do horário previsto por linha
-- `dim_veiculos` — estado atual e histórico de manutenção da frota
 
 ---
 
 ### 3.3.2 Domínio: Bilhetagem e Tarifas 🎫
 
-**Owner:** Gerência Financeira / Comercial  
-**Dados produzidos:** Fluxo de passageiros por estação e horário, receita por modal e linha, perfil de usuários.
+**Owner:** Gerência Financeira  
+**Dados produzidos:** Fluxo de passageiros por estação e horário, receita por modal.
 
 | Serviço | Responsabilidade | Entrada | Saída |
 |---|---|---|---|
-| **Validação de Bilhetes (Streaming)** | Processar eventos de catraca em tempo real; detectar fraudes (multiple swipe) | Tópico Kafka `catracas-metro` | Silver: `catracas_clean` · Alertas de fraude |
-| **Consolidação de Receita** | Agregar receita diária por linha, modal, tipo de cartão | Silver `catracas_clean` + `viagens_clean` | Gold: `fct_receita_diaria` |
-| **Gestão de Cartões e Perfis** | Manter perfis pseudoanonimizados de usuários; segmentação por tipo de uso | PostgreSQL legado (batch) | Gold: `dim_usuarios_segmentados` |
+| **Validação de Bilhetes** | Limpar e deduplicar eventos de catraca | Bronze `catracas` | Silver: `catracas_clean` |
+| **Consolidação de Receita** | Agregar receita diária por modal e tipo de cartão | Silver `catracas_clean` + `viagens_clean` | Gold: `fct_receita_diaria` |
 
 ---
 
 ### 3.3.3 Domínio: Mobilidade Ativa 🚲
 
 **Owner:** Gerência de Mobilidade Sustentável  
-**Dados produzidos:** Disponibilidade de bikes por estação, padrões de trip, score de rebalanceamento.
+**Dados produzidos:** Disponibilidade de bikes por estação, padrões de viagem, score de rebalanceamento.
 
 | Serviço | Responsabilidade | Entrada | Saída |
 |---|---|---|---|
-| **Monitoramento de Estações** | Status em tempo real de cada estação (bikes disponíveis / vagas livres) | Tópico Kafka `bikes-iot` | Silver: `bikes_status_clean` · Dashboard live |
-| **Registro de Trips de Bicicleta** | Identificar início/fim de cada viagem de bicicleta; calcular duração e rota | Silver `bikes_status_clean` | Gold: `fct_trips_bikes` |
-| **Rebalanceamento de Frota** | Calcular score de desequilíbrio por estação; gerar lista de rebalanceamento | Gold `fct_trips_bikes` + `bikes_status_clean` | Alertas operacionais · `rpt_rebalanceamento` |
+| **Monitoramento de Estações** | Status de disponibilidade por estação ao longo do dia | Bronze `bikes_iot` | Silver: `bikes_status_clean` |
+| **Registro de Trips** | Identificar início/fim de cada viagem; calcular duração | Silver `bikes_status_clean` | Gold: `fct_trips_bikes` |
 
 ---
 
 ### 3.3.4 Domínio: Analytics e Planejamento 📊
 
 **Owner:** Diretoria de Planejamento / Equipe de Dados  
-**Responsabilidade:** Consumir dados curados de todos os domínios de negócio e transformá-los em inteligência acionável para gestores e reguladores.
+**Responsabilidade:** Consumir dados curados de todos os domínios e transformá-los em inteligência acionável.
 
 | Serviço | Responsabilidade | Consome de | Produz |
 |---|---|---|---|
-| **Indicadores Operacionais (KPIs)** | Calcular e publicar KPIs de performance diários e em tempo real | Todos os domínios (Silver/Gold) | Dashboards Superset · `kpi_operacional_diario` |
-| **Análise de Demanda** | Identificar padrões de demanda por região, horário, clima | Gold todos os domínios + Meteorologia | `agg_demanda_por_hora` · Heatmaps |
-| **Relatórios Regulatórios** | Gerar automaticamente relatórios mensais para a Prefeitura | Gold consolidado | PDF automatizado · `rpt_regulatorio_mensal` |
+| **KPIs Operacionais** | Calcular e publicar KPIs diários de performance | Todos os domínios (Silver/Gold) | Dashboards Superset · `kpi_operacional_diario` |
+| **Análise de Demanda** | Padrões de demanda por região, horário e clima | Gold + Meteorologia | `agg_demanda_por_hora` |
+| **Relatórios Regulatórios** | Gerar relatórios mensais para a Prefeitura | Gold consolidado | `rpt_regulatorio_mensal` |
 
 ---
 
-### 3.3.5 Domínio: Infraestrutura de Dados (Compartilhado) 🔧
+### 3.3.5 Domínio: Infraestrutura de Dados (Transversal) 🔧
 
 **Owner:** Equipe de Engenharia de Dados  
-**Responsabilidade:** Serviços horizontais que suportam todos os domínios de negócio. Nenhum dado de negócio "pertence" a este domínio — ele apenas garante que os dados cheguem com qualidade.
+**Responsabilidade:** Serviços horizontais que suportam todos os domínios. Não possui dados de negócio — garante que os dados cheguem com qualidade e no prazo.
 
 | Serviço | Responsabilidade | Tecnologia |
 |---|---|---|
-| **Ingestão** | Receber dados de todas as fontes (batch e streaming), garantir entrega e reter mensagens | Kafka + Airflow + Python |
-| **Qualidade de Dados** | Validar schemas, detectar nulos, duplicatas e outliers antes de promover Bronze→Silver | Great Expectations |
-| **Catálogo e Metadados** | Documentar todos os datasets, linhagem de dados, glossário de termos de negócio | OpenMetadata + dbt docs |
-| **Monitoramento** | Observar saúde dos pipelines, latência de streaming, disponibilidade de serviços | Prometheus + Grafana + Airflow alertas |
+| **Ingestão** | Executar pipelines de extração (batch e simuladores) | Airflow + Python scripts |
+| **Qualidade** | Validar schemas e completude antes de promover Bronze→Silver | dbt tests + pandas validations |
+| **Monitoramento** | Alertas de falha em DAGs e degradação de qualidade | Airflow e-mail alerts |
 
 ---
 
 ## 3.4 Serviços Compartilhados Entre Domínios
 
-Alguns serviços produzem dados consumidos por **múltiplos domínios**, caracterizando dependências cruzadas que precisam ser gerenciadas com contratos de dados (schemas versionados).
+Alguns datasets são produzidos por um domínio e consumidos por vários outros, exigindo contratos de dados (schemas versionados no Git).
 
 ```mermaid
 graph LR
-    subgraph SHARED_SVC["Serviços Compartilhados"]
-        DIM_STOP["dim_paradas\n(todas as paradas/estações\nde todos os modais)"]
+    subgraph SHARED["Datasets Compartilhados (Gold)"]
+        DIM_STOP["dim_paradas\n(paradas e estações\nde todos os modais)"]
         DIM_VEIC["dim_veiculos\n(frota consolidada)"]
         DIM_TIME["dim_calendario\n(tabela de datas)"]
-        CLIMA["tbl_clima_horario\n(dados INMET processados)"]
+        CLIMA["stg_clima\n(dados INMET)"]
     end
 
     DOM1["Operações de Frota"] -->|"produz"| DIM_VEIC
@@ -151,7 +142,6 @@ graph LR
     DOM1 -->|"consome"| DIM_STOP
     DOM2 -->|"consome"| DIM_STOP
     DOM3["Mobilidade Ativa"] -->|"consome"| DIM_STOP
-    DOM4 -->|"consome"| DIM_STOP
     DOM4 -->|"consome"| CLIMA
     DOM4 -->|"consome"| DIM_TIME
 ```
@@ -162,33 +152,31 @@ graph LR
 
 ```mermaid
 graph TD
-    subgraph FONTES["📡 Fontes Externas"]
-        F1["GPS/IoT"]
-        F2["Catracas"]
-        F3["ERP/CMMS/API"]
+    subgraph FONTES["📡 Fontes"]
+        F1["Scripts Python\n(GPS · Catracas · Bikes)"]
+        F2["PostgreSQL\n(Viagens legado)"]
+        F3["API INMET\n(Clima)"]
     end
 
     subgraph INFRA_DOM["🔧 Infra (Transversal)"]
-        INGEST["Ingestão\n(Kafka + Airflow)"]
-        QUALITY["Qualidade\n(Great Expectations)"]
-        CATALOG["Catálogo\n(OpenMetadata)"]
+        INGEST["Ingestão\n(Airflow + Python)"]
+        QUALITY["Qualidade\n(dbt tests)"]
     end
 
     subgraph BIZ_DOM["🏢 Domínios de Negócio"]
-        FLEET["Operações\nde Frota"]
-        TICKET["Bilhetagem\ne Tarifas"]
-        BIKE["Mobilidade\nAtiva"]
+        FLEET["Operações de Frota"]
+        TICKET["Bilhetagem e Tarifas"]
+        BIKE["Mobilidade Ativa"]
     end
 
     subgraph ANALYTICS_DOM["📊 Analytics e Planejamento"]
-        KPI["KPIs\nOperacionais"]
-        DEMAND["Análise de\nDemanda"]
-        REG["Relatórios\nRegulatórios"]
+        KPI["KPIs Operacionais"]
+        DEMAND["Análise de Demanda"]
+        REG["Relatórios Regulatórios"]
     end
 
     subgraph CONSUME["💻 Consumo"]
         DASH["Superset\nDashboards"]
-        API_C["FastAPI\nAPI REST"]
         SQL["DuckDB\nAd-hoc SQL"]
     end
 
