@@ -1,0 +1,20 @@
+ETAPA 1 — Dados Bronze gerados
+────────────────────────────────────────
+GPS Ônibus:     900 eventos em 1 arquivo(s)
+Catracas Metrô: 300 eventos em 1 arquivo(s)
+
+Exemplo de evento GPS:
+{
+  "vehicle_id": "BUS-0001",
+  "line_id": "L001",
+  "direction": "IDA",
+  "lat": -16.775691,
+  "lon": -49.197451,
+  "speed_kmh": 21.4,
+  "occupancy_pct": 77,
+  "engine_on": true,
+  "door_open": false,
+  "status": "on_route",
+  "timestamp": "2026-04-27T17:54:20.456025+00:00",
+  "schema_version": "1.0"
+}

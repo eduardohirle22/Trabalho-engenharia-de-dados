@@ -1,0 +1,119 @@
+version: 2
+
+models:
+
+  # ─── Staging ──────────────────────────────────────────────────────────────
+  - name: stg_gps_onibus
+    description: "Dados limpos de telemetria GPS dos ônibus — Bronze → Silver → Staging"
+    columns:
+      - name: vehicle_id
+        description: "Identificador único do veículo"
+        tests:
+          - not_null
+      - name: line_id
+        description: "Identificador da linha"
+        tests:
+          - not_null
+      - name: lat
+        description: "Latitude (deve estar entre -90 e 90)"
+        tests:
+          - not_null
+      - name: lon
+        description: "Longitude (deve estar entre -180 e 180)"
+        tests:
+          - not_null
+      - name: speed_kmh
+        description: "Velocidade em km/h"
+        tests:
+          - not_null
+      - name: status
+        description: "Status operacional do veículo"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["on_route", "at_stop", "delayed", "out_of_service"]
+      - name: direction
+        description: "Direção da viagem"
+        tests:
+          - accepted_values:
+              values: ["IDA", "VOLTA"]
+      - name: is_outlier
+        description: "Flag de outlier de velocidade (speed_kmh > 120)"
+        tests:
+          - not_null
+
+  - name: stg_catracas
+    description: "Eventos limpos de validação de bilhetes nas catracas do metrô"
+    columns:
+      - name: event_id
+        description: "Identificador único do evento de catraca"
+        tests:
+          - not_null
+          - unique
+      - name: station_id
+        description: "Identificador da estação"
+        tests:
+          - not_null
+      - name: direction
+        description: "Direção do passageiro na catraca"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["ENTRY", "EXIT"]
+      - name: card_hash
+        description: "Hash SHA-256 do cartão (LGPD — card_id nunca armazenado)"
+        tests:
+          - not_null
+      - name: card_type
+        description: "Tipo do cartão de bilhetagem"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["SINGLE", "MONTHLY", "STUDENT", "SENIOR"]
+
+  # ─── Marts ────────────────────────────────────────────────────────────────
+  - name: kpi_operacional_diario
+    description: "KPIs diários de operação por linha: OTP, velocidade, ocupação"
+    columns:
+      - name: linha
+        description: "Identificador da linha de ônibus"
+        tests:
+          - not_null
+      - name: data
+        description: "Data de referência do KPI"
+        tests:
+          - not_null
+      - name: otp_pct
+        description: "On-Time Performance — % de leituras em operação normal"
+        tests:
+          - not_null
+      - name: veiculos_ativos
+        description: "Número de veículos únicos que operaram na linha no dia"
+        tests:
+          - not_null
+      - name: classificacao_otp
+        description: "Classificação qualitativa do OTP"
+        tests:
+          - accepted_values:
+              values: ["BOM", "REGULAR", "CRITICO"]
+
+  - name: agg_demanda_por_hora
+    description: "Demanda de passageiros por estação × hora × dia — alimenta heatmap Superset"
+    columns:
+      - name: estacao
+        description: "Identificador da estação de metrô"
+        tests:
+          - not_null
+      - name: hora_do_dia
+        description: "Hora do dia (0–23)"
+        tests:
+          - not_null
+      - name: total_validacoes
+        description: "Total de eventos de catraca na estação/hora"
+        tests:
+          - not_null
+      - name: periodo
+        description: "Classificação do período do dia"
+        tests:
+          - accepted_values:
+              values: ["pico_manha", "pico_tarde", "fora_pico", "noturno"]

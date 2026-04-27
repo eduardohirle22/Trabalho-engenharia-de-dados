@@ -1,0 +1,18 @@
+# UrbanFlow — Dependências Python
+# Instalar: pip install -r requirements.txt
+
+# ─── Pipeline de dados ────────────────────────────────────────────────────────
+pandas>=2.0.0
+pyarrow>=13.0.0
+duckdb>=1.0.0
+dbt-duckdb>=1.8.0
+
+# ─── Ingestão e storage ───────────────────────────────────────────────────────
+boto3>=1.28.0
+
+# ─── Geração de dados sintéticos ─────────────────────────────────────────────
+faker>=20.0.0
+
+# ─── Conexão com PostgreSQL ───────────────────────────────────────────────────
+psycopg2-binary>=2.9.0
+sqlalchemy>=2.0.0
