@@ -1,137 +1,137 @@
 # 5. Tecnologias — Como Será Feito
 
-> **Princípio orientador:** Toda a stack é **100% open-source e gratuita**, executável em uma única máquina via Docker Compose. Nenhuma ferramenta exige conta em nuvem, licença paga ou plano premium.
+> **Princípio orientador:** Toda a stack é **100% open-source e gratuita**, executável em uma única máquina via Docker Compose. O ambiente completo sobe com `docker compose up` e não exige conta em nuvem, licença paga ou hardware especial.
 
 ---
 
-## 5.1 Visão Geral da Stack e Integração
+## 5.1 Visão Geral da Stack
 
 ```mermaid
 graph LR
     subgraph PRODUCERS["Produtores de Dados"]
-        GPS_P["Simulador GPS\n(Python script)"]
+        SIM_P["Simuladores Python\n(GPS · Catracas · Bikes)"]
         PG_P["PostgreSQL\n(banco legado)"]
         API_P["API INMET\n(REST externa)"]
     end
 
     subgraph INGEST["Ingestão"]
-        KAFKA["Apache Kafka\n+ Schema Registry"]
+        SCRIPTS["Scripts Python\n+ boto3"]
         AIRFLOW_I["Apache Airflow\n(DAGs batch)"]
     end
 
     subgraph STORAGE["Armazenamento — MinIO"]
-        BRONZE_S["Bronze\nJSON/CSV/Avro"]
+        BRONZE_S["Bronze\nJSON / CSV"]
         SILVER_S["Silver\nParquet"]
         GOLD_S["Gold\nParquet + DuckDB"]
     end
 
     subgraph PROCESS["Processamento"]
-        SPARK_P["Apache Spark\n(batch + streaming)"]
-        GE_P["Great Expectations\n(qualidade)"]
-        DBT_P["dbt Core\n(SQL models)"]
+        PANDAS_P["Python + pandas\n(Bronze → Silver)"]
+        DBT_P["dbt Core\n(Silver → Gold)"]
     end
 
     subgraph SERVE["Consumo"]
         SUPERSET_S["Apache Superset\n(BI dashboards)"]
-        FASTAPI_S["FastAPI\n(API REST)"]
         DUCK_S["DuckDB\n(ad-hoc SQL)"]
     end
 
-    subgraph OPS["Observabilidade"]
-        AIRFLOW_O["Airflow\n(orquestração)"]
-        PROM_O["Prometheus\n+ Grafana"]
-        META_O["OpenMetadata\n(catálogo)"]
-    end
+    SIM_P -->|"boto3 → MinIO"| SCRIPTS
+    PG_P -->|"Airflow DAG"| AIRFLOW_I
+    API_P -->|"Airflow DAG"| AIRFLOW_I
 
-    GPS_P -->|"MQTT → Kafka Connect"| KAFKA
-    PG_P -->|"Airflow DAG + JDBC"| AIRFLOW_I
-    API_P -->|"Airflow DAG + requests"| AIRFLOW_I
+    SCRIPTS --> BRONZE_S
+    AIRFLOW_I --> BRONZE_S
 
-    KAFKA -->|"Spark Structured Streaming"| BRONZE_S
-    AIRFLOW_I -->|"Python + boto3"| BRONZE_S
-
-    BRONZE_S -->|"Spark ETL"| SILVER_S
-    SILVER_S -->|"Great Expectations"| SILVER_S
+    BRONZE_S -->|"pandas ETL"| SILVER_S
     SILVER_S -->|"dbt models"| GOLD_S
 
     GOLD_S --> SUPERSET_S
-    GOLD_S --> FASTAPI_S
     GOLD_S --> DUCK_S
-
-    AIRFLOW_O -->|"agenda todos os jobs"| SPARK_P
-    AIRFLOW_O -->|"agenda todos os jobs"| GE_P
-    AIRFLOW_O -->|"agenda todos os jobs"| DBT_P
-    PROM_O -->|"coleta métricas de"| KAFKA
-    META_O -->|"documenta"| GOLD_S
 ```
+
+**Requisitos de hardware (estimativa):**
+
+| Serviço | RAM estimada |
+|---|---|
+| PostgreSQL | ~300 MB |
+| Apache Airflow | ~800 MB |
+| MinIO | ~300 MB |
+| Apache Superset | ~800 MB |
+| DuckDB (in-process) | ~200 MB |
+| Scripts Python / pandas | ~300 MB |
+| **Total** | **~2,7 GB** |
+
+Roda confortavelmente em qualquer máquina com **8 GB de RAM**.
 
 ---
 
 ## 5.2 Ingestão
 
-### 5.2.1 Apache Kafka — Ingestão de Streaming
+### 5.2.1 Scripts Python — Simuladores de Streaming
 
-**O que é:** Plataforma distribuída de streaming de eventos baseada num modelo de **log imutável e distribuído**. Dados são organizados em *tópicos* com *partições* e ficam retidos por um período configurável, independentemente de os consumidores terem lido ou não.
+**O que são:** Scripts Python que simulam o comportamento de dispositivos IoT (GPS de ônibus, catracas de metrô, sensores de bicicleta) gerando eventos JSON realistas e gravando-os diretamente no MinIO, particionados por data e hora.
 
-**Por que não usar alternativas:**
-- **AWS Kinesis:** Pago; exige conta AWS; sem controle local.
-- **Google Pub/Sub:** Pago; serverless (difícil de reproduzir localmente).
-- **RabbitMQ:** Focado em filas transacionais (mensagem desaparece após consumo), não em log imutável com replay — inadequado para o caso de uso de streaming analítico.
+**Por que simular em vez de usar Kafka + MQTT:**
+- Apache Kafka, mesmo em modo single-broker, consome ~1.5 GB de RAM e exige configuração de Zookeeper ou KRaft, Schema Registry e Kafka Connect — overhead grande para um protótipo.
+- Os simuladores Python reproduzem fielmente o **volume, a estrutura e a frequência** dos dados reais, permitindo validar toda a cadeia de transformação sem a complexidade de broker de mensagens.
+- O conceito de streaming é preservado: os scripts rodam continuamente e publicam dados particionados por janela de tempo, exatamente como um consumidor Kafka faria no Bronze.
+- **Integração direta com o MinIO:** os scripts usam boto3 (mesma API do AWS S3), publicando eventos particionados por data e hora — estrutura idêntica à que um consumidor Kafka escreveria na camada Bronze.
 
-**Por que Kafka é a escolha certa:**
-- Log imutável com retenção configurável → consumidores podem fazer *replay* de mensagens passadas (fundamental para reprocessamento)
-- Desacopla completamente produtores e consumidores (produtores não sabem quem consome)
-- Throughput de centenas de milhares de mensagens/segundo em hardware modesto
-- Suporte nativo a Spark Structured Streaming via conector oficial
-- Imagem Docker oficial (`confluentinc/cp-kafka` com KRaft — sem necessidade de Zookeeper)
+**Estrutura dos simuladores:**
 
-**Como se integra no UrbanFlow:**
+```python
+# simulador_gps.py — exemplo simplificado
+import json, time, random, boto3
+from datetime import datetime, timezone
 
+s3 = boto3.client("s3", endpoint_url="http://minio:9000",
+                  aws_access_key_id="minioadmin",
+                  aws_secret_access_key="minioadmin")
+
+VEHICLES = [f"BUS-{i:04d}" for i in range(1, 851)]
+LINES    = [f"L{i:03d}" for i in range(1, 121)]
+
+while True:
+    now    = datetime.now(timezone.utc)
+    events = []
+    for vid, lid in zip(VEHICLES, LINES):
+        events.append({
+            "vehicle_id":    vid,
+            "line_id":       lid,
+            "lat":           round(random.uniform(-23.60, -23.50), 4),
+            "lon":           round(random.uniform(-46.70, -46.60), 4),
+            "speed_kmh":     round(random.uniform(0, 80), 1),
+            "occupancy_pct": random.randint(0, 100),
+            "status":        random.choice(["on_route", "at_stop", "delayed"]),
+            "timestamp":     now.isoformat()
+        })
+
+    key = (f"gps_onibus/ano={now.year}/mes={now.month:02d}/"
+           f"dia={now.day:02d}/hora={now.hour:02d}/"
+           f"gps_{now.strftime('%Y%m%d_%H%M%S')}.json")
+    s3.put_object(Bucket="urbanflow-bronze",
+                  Key=key,
+                  Body=json.dumps(events))
+    time.sleep(30)
 ```
-[Dispositivo GPS] --(MQTT)--> [Kafka Connect MQTT Connector] --> [Tópico: gps-onibus]
-[Catraca Metrô]   --(Avro via cliente Kafka)----------------> [Tópico: catracas-metro]
-[IoT Bicicleta]   --(MQTT)--> [Kafka Connect MQTT Connector] --> [Tópico: bikes-iot]
-                                                                        ↓
-                                              [Spark Structured Streaming Consumer]
-                                                                        ↓
-                                                              [Bronze - MinIO]
-```
-
-**Tópicos e configurações:**
-
-| Tópico | Partições | Retenção | Formato | Chave de Partição |
-|---|---|---|---|---|
-| `gps-onibus` | 4 | 24h | JSON | `vehicle_id` |
-| `catracas-metro` | 2 | 24h | Avro | `station_id` |
-| `bikes-iot` | 2 | 24h | JSON | `bike_id` |
-
-**Limitação no protótipo:** 1 broker com fator de replicação 1 (sem tolerância a falha). Em produção: 3+ brokers, replicação 3, `min.insync.replicas=2`.
 
 ---
 
 ### 5.2.2 Apache Airflow — Ingestão Batch
 
-**O que é:** Plataforma de orquestração de workflows (DAGs — Directed Acyclic Graphs) baseada em Python. Cada pipeline de dados é definido como um DAG com tarefas, dependências e agendamento.
+**O que é:** Plataforma de orquestração de workflows definidos como DAGs (Directed Acyclic Graphs) em Python. Cada pipeline de dados é um DAG com tarefas, dependências e agendamento.
 
-**Por que não usar alternativas:**
-- **Fivetran / Airbyte:** Têm versão open-source limitada; Fivetran é pago; Airbyte open-source é mais pesado e adequado para muitos conectores out-of-the-box. Para 4 fontes batch com lógica customizada, Airflow é mais simples.
-- **Prefect / Dagster:** Têm cloud pago para features avançadas; menor comunidade; Airflow tem o ecossistema mais maduro.
-
-**Por que Airflow:**
-- DAGs são Python puro — toda lógica customizada de extração é implementada diretamente
-- UI web nativa com histórico de execuções, re-execução manual e alertas por e-mail
-- `retries` e `retry_delay` nativos garantem resiliência sem código adicional
-- 100% open-source (Apache License 2.0)
-- Providers oficiais para PostgreSQL, HTTP, Amazon S3 (boto3), todos necessários no projeto
+**Por que Airflow e não alternativas:**
+- **Prefect / Dagster:** Funcionalidades avançadas requerem plano pago em nuvem; ecossistema menor.
+- **cron + scripts:** Sem UI de monitoramento, sem histórico de execuções, sem retry automático.
+- **Airflow:** 100% open-source (Apache 2.0); UI web completa com histórico e re-execução manual; `retries` nativos; providers oficiais para PostgreSQL, HTTP e S3.
 
 **DAGs de ingestão planejadas:**
 
-| DAG ID | Schedule | Fonte | Destino Bronze | Hook/Operator |
+| DAG ID | Schedule | Fonte | Destino Bronze | Operador |
 |---|---|---|---|---|
-| `dag_ingest_viagens` | `0 1 * * *` | PostgreSQL legado | `bronze/viagens/` | `PostgresHook` + `S3Hook` |
-| `dag_ingest_frota` | `0 6 * * 1` | ERP (CSV SFTP) | `bronze/frota/` | `SFTPHook` + `S3Hook` |
-| `dag_ingest_clima` | `0 * * * *` | API INMET (REST) | `bronze/clima/` | `SimpleHttpOperator` + `S3Hook` |
-| `dag_ingest_manutencao` | `0 2 * * *` | CMMS (JSON HTTP) | `bronze/manutencao/` | `SimpleHttpOperator` + `S3Hook` |
+| `dag_ingest_viagens` | `0 1 * * *` | PostgreSQL legado | `bronze/viagens/` | `PostgresHook` + boto3 |
+| `dag_ingest_clima` | `0 * * * *` | API INMET (REST) | `bronze/clima/` | `SimpleHttpOperator` + boto3 |
 
 ---
 
@@ -139,74 +139,55 @@ graph LR
 
 ### 5.3.1 MinIO — Object Storage (Núcleo do Lakehouse)
 
-**O que é:** Implementação open-source de object storage 100% compatível com a API do **Amazon S3**. Tudo que funciona com boto3 e S3 funciona com MinIO sem alterar uma linha de código.
-
-**Por que não usar diretamente o S3:**
-- S3 é pago (por GB armazenado + por requisição)
-- Requer conta AWS e configuração de credenciais de nuvem
+**O que é:** Implementação open-source de object storage 100% compatível com a API do **Amazon S3**.
 
 **Por que MinIO:**
-- Mesma API S3 → o código de produção (boto3) funciona identicamente em dev e em nuvem, apenas trocando a URL do endpoint
-- Buckets, prefixos, políticas de acesso e lifecycle rules — tudo igual ao S3 real
-- Console web para navegar e inspecionar arquivos
-- Imagem Docker oficial, leve (~200 MB)
-- **Caminho de migração em produção:** Trocar `endpoint_url="http://minio:9000"` por `endpoint_url="https://s3.amazonaws.com"` no boto3 — zero mudança de lógica
+- Mesma API S3 → código boto3 funciona identicamente em dev e em nuvem (só muda a URL do endpoint).
+- Console web para navegar e inspecionar arquivos de qualquer camada.
+- Imagem Docker leve (~200 MB) e sem configuração complexa.
+- **Portabilidade:** o código usa boto3 padrão S3. Trocar MinIO por AWS S3 real requer apenas alterar a URL do endpoint — nenhuma linha de lógica muda.
 
 **Estrutura de buckets:**
 
 ```
-urbanflow-bronze/           # Dados brutos imutáveis
-├── gps_onibus/
-│   └── ano=2026/mes=04/dia=09/hora=08/
-│       └── gps_onibus_2026-04-09_08_part0.json.gz
-├── catracas/
-│   └── ano=2026/mes=04/dia=09/
-│       └── catracas_2026-04-09_part0.avro
-├── viagens/
-│   └── ano=2026/mes=04/dia=09/
-│       └── viagens_2026-04-09.csv.gz
-└── clima/ · frota/ · manutencao/ ...
+urbanflow-bronze/           # Dados brutos imutáveis (JSON e CSV)
+├── gps_onibus/ano=2026/mes=04/dia=09/hora=08/
+├── catracas/ano=2026/mes=04/dia=09/
+├── bikes_iot/ano=2026/mes=04/dia=09/
+├── viagens/ano=2026/mes=04/dia=09/
+└── clima/ano=2026/mes=04/dia=09/hora=09/
 
 urbanflow-silver/           # Parquet limpo e validado
-├── gps_onibus_clean/
-│   └── ano=2026/mes=04/dia=09/
-│       └── part-00000.snappy.parquet
-├── catracas_clean/
-├── viagens_clean/
-└── ...
+├── gps_onibus_clean/ano=2026/mes=04/dia=09/
+├── catracas_clean/ano=2026/mes=04/dia=09/
+├── bikes_status_clean/ano=2026/mes=04/dia=09/
+└── viagens_clean/ano=2026/mes=04/dia=09/
 
-urbanflow-gold/             # Modelos analíticos finais
+urbanflow-gold/             # Modelos analíticos (Parquet)
 ├── fct_viagens_diarias/
 ├── fct_receita_diaria/
 ├── agg_demanda_por_hora/
 ├── kpi_operacional_diario/
-└── rpt_regulatorio_mensal/
+└── dim_veiculos/ · dim_paradas/ · dim_calendario/
 ```
 
 ---
 
 ### 5.3.2 DuckDB — Motor Analítico (Camada Gold)
 
-**O que é:** Banco de dados analítico **in-process** e columnar, sem servidor. Funciona como uma biblioteca Python que executa SQL diretamente sobre arquivos Parquet, CSV ou JSON — sem precisar importar nada.
-
-**Por que não usar alternativas:**
-- **BigQuery / Redshift / Snowflake:** Pagos; exigem conta em nuvem
-- **PostgreSQL para analytics:** OLTP, não otimizado para queries analíticas (full table scans lentos em tabelas grandes)
-- **Apache Hive:** Requer cluster Hadoop; pesado demais para protótipo local
-- **ClickHouse:** Excelente para produção em alta escala, mas tem overhead de configuração maior que DuckDB para protótipo
+**O que é:** Banco de dados analítico **in-process** e columnar. Funciona como uma biblioteca Python que executa SQL diretamente sobre arquivos Parquet no MinIO — sem servidor adicional.
 
 **Por que DuckDB:**
-- Lê Parquet diretamente do MinIO via S3 sem importação: `SELECT * FROM read_parquet('s3://urbanflow-gold/...')`
-- Performance analítica excelente para até dezenas de GB em single-node
-- Funciona como adapter do dbt (`dbt-duckdb`) — sem servidor adicional
-- SQLAlchemy connector para Superset
-- Zero configuração — `pip install duckdb` e já está pronto
-- Open-source (MIT License)
+- Lê Parquet diretamente do MinIO via extensão `httpfs`: `SELECT * FROM read_parquet('s3://urbanflow-gold/...')`
+- Funciona como adapter do dbt (`dbt-duckdb`) — sem infraestrutura extra.
+- Conector SQLAlchemy para o Superset.
+- Zero configuração: `pip install duckdb` e pronto.
+- Open-source (MIT License).
 
 **Integração com dbt:**
 
-```python
-# profiles.yml do dbt
+```yaml
+# profiles.yml
 urbanflow:
   target: dev
   outputs:
@@ -214,8 +195,8 @@ urbanflow:
       type: duckdb
       path: /opt/urbanflow/gold.duckdb
       extensions:
-        - httpfs      # lê S3/MinIO diretamente
-        - parquet     # suporte nativo a Parquet
+        - httpfs    # lê S3/MinIO diretamente
+        - parquet   # suporte nativo a Parquet
 ```
 
 ---
@@ -223,87 +204,74 @@ urbanflow:
 ### 5.3.3 PostgreSQL — Banco Operacional
 
 **Usos no projeto:**
-1. **Simula o banco legado de bilhetagem** — fonte dos dados históricos de viagens
-2. **Metadados do Airflow** — estado de DAGs, execuções, variáveis, conexões
-3. **Metadados do dbt** — resultados de testes e runs
-
-Escolhido por ser o banco relacional open-source mais maduro, amplamente suportado pelo ecossistema (Airflow, dbt, Great Expectations).
+1. **Simula o banco legado de bilhetagem** — fonte dos dados históricos de viagens (populado com dados gerados pelo Faker).
+2. **Metadados do Airflow** — estado de DAGs, execuções e conexões.
 
 ---
 
 ## 5.4 Processamento e Transformação
 
-### 5.4.1 Apache Spark (PySpark)
+### 5.4.1 Python + pandas — Bronze → Silver
 
-**O que é:** Framework distribuído de processamento de dados em larga escala, com suporte a batch e streaming no mesmo motor.
+**O que é:** Scripts Python usando pandas para limpeza, validação e transformação dos dados brutos da camada Bronze.
 
-**Por que não usar alternativas:**
-- **Apache Flink:** Excelente para streaming de baixíssima latência (millisegundos), mas a curva de aprendizado é maior e a integração com o ecossistema Python é menos madura que o PySpark
-- **pandas:** Não escala além da memória RAM da máquina; sem suporte nativo a Kafka; adequado apenas para DataFrames pequenos
-- **Apache Beam:** Portabilidade entre runners (Flink, Spark, Dataflow), mas overhead de abstração e sem runner local eficiente para ambos os casos
+**Por que pandas e não Apache Spark:**
+- Apache Spark exige JVM, configuração de cluster e consome 2–4 GB de RAM apenas na inicialização — overhead injustificado para os volumes do projeto (~10.000 registros/dia de viagens, ~12.000 eventos de catracas).
+- pandas processa esses volumes em segundos, com código Python direto, sem infraestrutura adicional.
+- A lógica de transformação (deduplicação, normalização, joins) é idiomática em pandas e diretamente portável para PySpark em cenários de maior volume.
 
-**Por que Spark:**
-- Um único framework para **batch** (Bronze→Silver) **e streaming** (Kafka→Bronze) — sem duplicação de stack
-- `spark.readStream.format("kafka")` consome tópicos Kafka nativamente
-- Modo `local[*]` usa todas as CPUs da máquina sem cluster — adequado para protótipo
-- PySpark permite código Python familiar
-
-**Uso no protótipo:**
+**Exemplo de transformação Bronze → Silver:**
 
 ```python
-# Streaming: Kafka → Bronze
-df_stream = (spark.readStream
-    .format("kafka")
-    .option("kafka.bootstrap.servers", "kafka:9092")
-    .option("subscribe", "gps-onibus")
-    .load())
+import pandas as pd
+import boto3, io
 
-df_stream.writeStream \
-    .format("json") \
-    .option("checkpointLocation", "/tmp/checkpoints/gps") \
-    .option("path", "s3a://urbanflow-bronze/gps_onibus/") \
-    .trigger(processingTime="5 minutes") \
-    .start()
+s3 = boto3.client("s3", endpoint_url="http://minio:9000", ...)
 
-# Batch: Bronze → Silver
-df_gps = spark.read.json("s3a://urbanflow-bronze/gps_onibus/ano=2026/mes=04/dia=09/")
-df_clean = (df_gps
-    .dropDuplicates(["vehicle_id", "timestamp"])
-    .filter(col("speed_kmh").between(0, 120))
-    .withColumn("timestamp", to_utc_timestamp("timestamp", "UTC"))
-    .withColumn("is_outlier", col("speed_kmh") > 90))
+# Lê Bronze
+obj = s3.get_object(Bucket="urbanflow-bronze", Key="gps_onibus/ano=2026/mes=04/dia=09/...")
+df = pd.read_json(io.BytesIO(obj["Body"].read()))
 
-df_clean.write.mode("overwrite").parquet("s3a://urbanflow-silver/gps_onibus_clean/ano=2026/mes=04/dia=09/")
+# Limpeza e validação
+df = df.dropna(subset=["vehicle_id", "timestamp"])
+df = df.drop_duplicates(subset=["vehicle_id", "timestamp"])
+df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+df["is_outlier"] = df["speed_kmh"] > 120
+df = df[df["speed_kmh"] >= 0]  # remove negativos
+
+# Escreve Silver em Parquet
+buffer = io.BytesIO()
+df.to_parquet(buffer, engine="pyarrow", compression="snappy", index=False)
+s3.put_object(Bucket="urbanflow-silver",
+              Key="gps_onibus_clean/ano=2026/mes=04/dia=09/part-00000.snappy.parquet",
+              Body=buffer.getvalue())
 ```
 
 ---
 
-### 5.4.2 dbt Core — Transformação SQL Silver → Gold
+### 5.4.2 dbt Core — Silver → Gold
 
-**O que é:** Ferramenta de transformação baseada em SQL com controle de versão, testes automatizados e geração de documentação/linhagem. O engenheiro escreve SQL; o dbt cuida da materialização, ordem de execução e testes.
+**O que é:** Ferramenta de transformação baseada em SQL com controle de versão, testes automatizados e geração de linhagem. O engenheiro escreve SQL; o dbt cuida da ordem de execução, materialização e testes.
 
-**Por que não usar SQL puro no Spark:**
-- SQL puro no Spark não tem testes automatizados, documentação de linhagem ou controle de dependências entre modelos
-- dbt gera automaticamente o DAG de dependências entre modelos com `ref()`
-- Testes nativos (`not_null`, `unique`, `accepted_values`, `relationships`) rodam após cada materialização
+**Por que dbt:**
+- Gera automaticamente o DAG de dependências entre modelos via `ref()`.
+- Testes nativos (`not_null`, `unique`, `accepted_values`) rodam após cada materialização.
+- `dbt docs generate` cria documentação HTML com linhagem completa dos dados.
+- 100% open-source (Apache 2.0); dbt Core roda via CLI sem custo.
 
-**Por que dbt Core (não dbt Cloud):**
-- dbt Cloud é pago para times; dbt Core é 100% open-source e roda via CLI
-- Com `dbt-duckdb`, integra perfeitamente com o DuckDB local sem infraestrutura adicional
-
-**Estrutura de modelos planejada:**
+**Estrutura de modelos:**
 
 ```
 models/
-├── staging/                   ← Lê Silver (Parquet via DuckDB), padroniza colunas
+├── staging/              ← Lê Silver (Parquet via DuckDB), padroniza colunas
 │   ├── stg_viagens.sql
 │   ├── stg_gps_onibus.sql
 │   ├── stg_catracas.sql
 │   └── stg_bikes.sql
-├── intermediate/              ← Joins e enriquecimentos com dimensões
-│   ├── int_viagens_enriquecidas.sql   ← viagens + dim_veiculos + dim_paradas
-│   └── int_passageiros_por_hora.sql   ← catracas agregadas por hora
-└── marts/                     ← Tabelas Gold finais (consumidas pelo Superset)
+├── intermediate/         ← Joins com dimensões
+│   ├── int_viagens_enriquecidas.sql
+│   └── int_passageiros_por_hora.sql
+└── marts/                ← Tabelas Gold finais
     ├── fct_viagens_diarias.sql
     ├── fct_receita_diaria.sql
     ├── agg_demanda_por_hora.sql
@@ -320,7 +288,7 @@ models/
 WITH viagens AS (
     SELECT * FROM {{ ref('int_viagens_enriquecidas') }}
 ),
-scheduled AS (
+horarios AS (
     SELECT * FROM {{ ref('stg_horarios_programados') }}
 )
 
@@ -328,50 +296,30 @@ SELECT
     v.trip_date,
     v.line_id,
     v.modal,
-    COUNT(v.trip_id)                                    AS total_viagens,
-    SUM(v.passengers)                                   AS total_passageiros,
-    AVG(v.delay_minutes)                                AS atraso_medio_min,
+    COUNT(v.trip_id)                                          AS total_viagens,
+    SUM(v.passengers)                                         AS total_passageiros,
+    AVG(v.delay_minutes)                                      AS atraso_medio_min,
     100.0 * SUM(CASE WHEN v.delay_minutes <= 5 THEN 1 ELSE 0 END)
-           / COUNT(v.trip_id)                           AS otp_pct
+           / COUNT(v.trip_id)                                 AS otp_pct
 FROM viagens v
 GROUP BY 1, 2, 3
 ```
 
----
+**Testes dbt configurados:**
 
-### 5.4.3 Great Expectations — Qualidade de Dados
-
-**O que é:** Biblioteca Python para definição, validação e documentação de **expectativas** (regras) sobre dados, integrada ao pipeline de ETL.
-
-**Por que não usar apenas testes dbt:**
-- Testes dbt rodam na camada Gold (após transformação). Great Expectations valida na camada Bronze/Silver — detecta problemas **antes** de propagar erros para camadas superiores.
-- GE valida dados em DataFrames Spark/Pandas durante a execução do pipeline, não após.
-
-**Expectations planejadas por dataset:**
-
-| Dataset | Expectation | Ação se falhar |
-|---|---|---|
-| `gps_onibus` (Bronze→Silver) | `vehicle_id` não nulo | Quarentena: mover para `bronze/quarentena/gps/` |
-| `gps_onibus` | `speed_kmh` entre 0 e 120 | Sinalizar como `is_outlier=true` (não bloquear) |
-| `gps_onibus` | `lat` entre -90 e 90, `lon` entre -180 e 180 | Quarentena |
-| `catracas` | `fare_paid` >= 0 | Quarentena |
-| `catracas` | `direction` em ['ENTRY', 'EXIT'] | Quarentena |
-| `viagens` | `trip_date` = data de ontem (T-1) | Alerta de atraso na fonte |
-| `viagens` | duplicatas em `trip_id` | Quarentena (deduplicar) |
-| Qualquer dataset | % de nulos em campos obrigatórios < 0.5% | Alerta para a equipe |
-
-**Integração com Airflow:**
-
-```python
-# No DAG de transformação Silver
-from great_expectations_provider.operators.great_expectations import GreatExpectationsOperator
-
-validate_gps = GreatExpectationsOperator(
-    task_id="validate_gps_bronze",
-    expectation_suite_name="gps_onibus.bronze",
-    batch_kwargs={"path": "s3a://urbanflow-bronze/gps_onibus/ano=2026/mes=04/dia={{ ds }}/"},
-    fail_task_on_validation_failure=True,
-)
+```yaml
+# models/marts/schema.yml
+models:
+  - name: fct_viagens_diarias
+    columns:
+      - name: trip_id
+        tests: [unique, not_null]
+      - name: modal
+        tests:
+          - accepted_values:
+              values: ['onibus', 'metro', 'bicicleta']
+      - name: fare_paid
+        tests: [not_null]
 ```
 
 ---
@@ -380,163 +328,104 @@ validate_gps = GreatExpectationsOperator(
 
 ### Apache Airflow — Orquestração Central
 
-**Por que uma única ferramenta de orquestração:**
-Centralizar toda orquestração em Airflow evita a necessidade de gerenciar dois sistemas (ex: Airflow para batch + algum scheduler de streaming). O streaming com Spark é iniciado via `SparkSubmitOperator` ou `BashOperator` dentro de DAGs Airflow.
-
-**Comparativo com alternativas:**
-
-| Ferramenta | Vantagens | Por que não usamos |
-|---|---|---|
-| **Prefect** | UI moderna, cloud-first | Funcionalidades avançadas requerem Prefect Cloud (pago); ecossistema menor |
-| **Dagster** | Forte em data assets e lineage | Dagster+ (cloud) é pago; mais complexo para começar; menor adoção no mercado |
-| **Luigi** | Simples, sem servidor | Sem UI nativa adequada; menos features; desenvolvimento mais lento |
-| **Airflow** ✅ | Maduro, Python puro, UI completa, 100% open-source | — ESCOLHIDO |
+**Por que Airflow:**
+Centralizar toda orquestração em Airflow elimina a necessidade de múltiplos schedulers. Os scripts pandas e dbt são invocados via `BashOperator` ou `PythonOperator` dentro dos DAGs.
 
 **Todos os DAGs do projeto:**
 
 | DAG ID | Schedule | Etapa | Dependências |
 |---|---|---|---|
-| `dag_ingest_viagens` | `0 1 * * *` | Extrai PostgreSQL → Bronze | Nenhuma |
-| `dag_ingest_clima` | `0 * * * *` | Extrai API INMET → Bronze | Nenhuma |
-| `dag_ingest_manutencao` | `0 2 * * *` | Extrai CMMS → Bronze | Nenhuma |
-| `dag_ingest_frota` | `0 6 * * 1` | Extrai ERP → Bronze | Nenhuma |
-| `dag_transform_silver` | `0 3 * * *` | Spark Bronze→Silver | `dag_ingest_viagens` ✅ |
-| `dag_validate_quality` | `30 3 * * *` | Great Expectations | `dag_transform_silver` ✅ |
-| `dag_dbt_gold` | `0 4 * * *` | dbt Silver→Gold | `dag_validate_quality` ✅ |
-| `dag_refresh_dashboards` | `0 5 * * *` | Atualiza caches Superset | `dag_dbt_gold` ✅ |
+| `dag_ingest_viagens` | `0 1 * * *` | PostgreSQL → Bronze | Nenhuma |
+| `dag_ingest_clima` | `0 * * * *` | API INMET → Bronze | Nenhuma |
+| `dag_transform_silver` | `0 3 * * *` | pandas Bronze → Silver | `dag_ingest_viagens` ✅ |
+| `dag_dbt_gold` | `0 4 * * *` | dbt Silver → Gold | `dag_transform_silver` ✅ |
+
+> **Nota:** Os simuladores (GPS, catracas, bikes) rodam como processos Python contínuos gerenciados pelo Docker Compose, não como DAGs Airflow, pois precisam de execução ininterrupta — diferente dos jobs batch que têm início e fim.
 
 ---
 
-## 5.6 Servir Dados / Consumo
+## 5.6 Consumo
 
 ### 5.6.1 Apache Superset — Dashboards e BI
 
-**O que é:** Plataforma de BI e exploração de dados open-source, mantida pela Apache Software Foundation.
-
-**Por que não usar Power BI/Tableau:**
-- Power BI: pago para publicação (Power BI Service); licença Pro ~R$70/usuário/mês
-- Tableau: pago (~US$70/usuário/mês); sem opção gratuita para múltiplos usuários
-
-**Por que Superset:**
-- Conecta diretamente ao DuckDB via SQLAlchemy
-- Dashboards interativos com filtros, drill-down, mapas de calor (com Mapbox)
-- Controle de acesso por roles (gestor vê diferente do regulador)
-- 100% open-source (Apache License 2.0)
+**Por que Superset e não Power BI / Tableau / Metabase:**
+- Power BI: pago para publicação (Power BI Service); licença Pro ~R$70/usuário/mês.
+- Tableau: pago (~US$70/usuário/mês).
+- Metabase: boa opção open-source, mas conectividade com DuckDB ainda limitada.
+- **Superset:** conecta diretamente ao DuckDB via SQLAlchemy; dashboards interativos com mapas de calor; controle de acesso por roles; 100% open-source (Apache 2.0).
 
 **Dashboards planejados:**
 
-| Dashboard | Usuário Alvo | Tipo de Visualização |
+| Dashboard | Usuário Alvo | Visualização |
 |---|---|---|
-| 🗺️ **Mapa de Demanda** | Planejamento Urbano | Heatmap geográfico por estação |
 | 📈 **OTP por Linha** | Gestão Operacional | Série temporal + bar chart |
-| 🚲 **Disponibilidade de Bikes** | Operações Mobilidade | Gauge por estação + mapa |
 | 💰 **Receita Diária por Modal** | Diretoria Financeira | Stacked bar + linha de meta |
-| ⚠️ **Monitoramento de Frotas** | Gestão Operacional | Mapa em tempo real + alertas |
+| 🚲 **Disponibilidade de Bikes** | Operações Mobilidade | Gauge por estação |
+| 🗺️ **Mapa de Demanda** | Planejamento Urbano | Heatmap geográfico |
 
 ---
 
-### 5.6.2 FastAPI — API REST para Consumo Externo
+### 5.6.2 DuckDB — Consultas Ad-hoc
 
-**O que é:** Framework Python assíncrono moderno para construção de APIs REST, com geração automática de documentação OpenAPI (Swagger).
+**Uso:** Analistas e cientistas de dados consultam diretamente os arquivos Parquet da camada Gold via DuckDB CLI ou integração com Jupyter Notebook — sem servidor adicional, sem configuração.
 
-**Por que FastAPI:**
-- Expõe dados Gold via API para o app mobile dos passageiros (consulta de horários e disponibilidade de bikes)
-- Expõe endpoint para download de relatórios regulatórios em formato estruturado (JSON ou CSV)
-- Documentação Swagger automática em `/docs` sem configuração adicional
-- Open-source, leve, sem custos
-
-**Endpoints planejados:**
-
-```
-GET  /api/v1/linhas/{line_id}/proximas-partidas    → próximas saídas previstas
-GET  /api/v1/estacoes/bikes/disponibilidade        → disponibilidade atual por estação
-GET  /api/v1/relatorio/mensal/{ano}/{mes}          → relatório regulatório em JSON
-GET  /api/v1/kpis/operacional/{data}               → KPIs de uma data específica
+```sql
+-- Exemplo de query ad-hoc diretamente no Parquet
+SELECT line_id, AVG(otp_pct) AS media_otp
+FROM read_parquet('s3://urbanflow-gold/kpi_operacional_diario/*.parquet')
+WHERE trip_date >= current_date - 30
+GROUP BY 1
+ORDER BY 2 ASC
+LIMIT 10;
 ```
 
 ---
 
-## 5.7 Correntes Transversais do Ciclo de Vida
+## 5.7 Correntes Transversais
 
 ### 5.7.1 Segurança e Privacidade
 
-| Aspecto | Implementação | Justificativa |
-|---|---|---|
-| **Pseudoanonimização de cartões** | `card_id` → `card_hash` SHA-256 no Kafka producer (antes do armazenamento) | Conformidade com LGPD — dados de passageiros não ficam em claro na plataforma |
-| **Acesso ao MinIO** | Políticas por bucket: Bronze leitura/escrita para pipelines; Gold leitura para Superset/FastAPI | Princípio do menor privilégio |
-| **Secrets no Airflow** | Credenciais de banco e APIs armazenadas em Airflow Connections/Variables (não hardcoded no código) | Secrets fora do código-fonte |
-| **Autenticação no Superset** | Login local com roles (Admin, Analyst, Viewer) | Controle de acesso por perfil de usuário |
-| **Autenticação na FastAPI** | API Key via header `X-API-Key` para endpoints externos | Controle de acesso a dados regulatórios |
+| Aspecto | Implementação |
+|---|---|
+| **Pseudoanonimização** | `card_id` → `card_hash` SHA-256 no simulador, antes do armazenamento |
+| **Acesso ao MinIO** | Políticas por bucket: Bronze para pipelines; Gold somente leitura para Superset |
+| **Secrets no Airflow** | Credenciais em Airflow Connections/Variables (não hardcoded no código) |
+| **Autenticação Superset** | Login local com roles (Admin, Analyst, Viewer) |
 
----
+### 5.7.2 Monitoramento e Alertas
 
-### 5.7.2 Monitoramento e Observabilidade
+Sem Prometheus/Grafana (overhead desnecessário no protótipo). Monitoramento feito via:
+- **Airflow UI:** histórico de execuções, duração, status de cada task.
+- **Alertas por e-mail:** configurados no Airflow para falhas após 3 tentativas.
+- **dbt test results:** log de testes após cada materialização Gold.
+- **Contagem de linhas nos scripts pandas:** logs de registros lidos, rejeitados e escritos em cada etapa.
 
-```mermaid
-graph LR
-    subgraph MONITORED["Componentes Monitorados"]
-        K_MON["Kafka\n(lag de consumers\nmensagens/s)"]
-        A_MON["Airflow\n(sucesso/falha de DAGs\nduração de tasks)"]
-        S_MON["Spark\n(throughput\nerros de job)"]
-        Q_MON["Great Expectations\n(% de dados válidos\ndatasets em quarentena)"]
-    end
+### 5.7.3 Governança e Documentação
 
-    PROM["Prometheus\n(coleta métricas)"] -->|"scrape"| K_MON
-    PROM -->|"scrape"| A_MON
-    PROM -->|"scrape"| S_MON
-    GE_DOC["GE Data Docs\n(relatórios HTML\nde qualidade)"] --> Q_MON
+- **dbt docs:** `dbt docs generate` cria documentação HTML com linhagem completa dos modelos Silver → Gold.
+- **README e diagramas Mermaid:** documentação da arquitetura versionada no GitHub junto com o código.
+- **Git como fonte da verdade:** todos os DAGs, scripts Python e modelos dbt versionados.
 
-    PROM --> GRAFANA["Grafana\n(dashboards de saúde\n+ alertas)"]
-    GRAFANA -->|"alerta por e-mail\nou webhook Slack"| OPS_TEAM["👤 Equipe de\nDados / Ops"]
-```
-
-**Alertas configurados:**
-- Consumer lag do Kafka > 10.000 mensagens → alerta (possível lentidão do Spark)
-- DAG com falha em 2 retries consecutivos → e-mail para a equipe
-- % de dados válidos < 99% no Great Expectations → alerta de qualidade
-- Tempo de execução do job Spark > 2× a média histórica → alerta de desempenho
-
----
-
-### 5.7.3 Governança e Catálogo de Dados
-
-**OpenMetadata** (open-source, licença Apache 2.0):
-- Catálogo centralizado de todos os datasets das camadas Silver e Gold
-- Linhagem de dados visual (de qual fonte veio cada coluna da tabela Gold)
-- Glossário de negócio (ex: o que significa "OTP", "trip_id", "card_hash")
-- Contratos de dados: definição formal do schema esperado de cada dataset
-
-**dbt docs:**
-- `dbt docs generate` cria automaticamente documentação HTML com o DAG de dependências entre modelos
-- Cada modelo tem description, column descriptions e resultados de testes — acessível via `dbt docs serve`
-
----
-
-### 5.7.4 DataOps e Versionamento
+### 5.7.4 DataOps e Reprodutibilidade
 
 | Prática | Implementação |
 |---|---|
-| **Controle de versão** | Todo código (DAGs, modelos dbt, expectations, docker-compose) no GitHub |
-| **Testes de qualidade** | Great Expectations (dados) + testes dbt (`not_null`, `unique`) + pytest (código Python) |
-| **Ambiente reproduzível** | `docker-compose up` sobe todo o ambiente em qualquer máquina com Docker instalado |
-| **CI/CD (futuro)** | GitHub Actions para rodar `dbt test` e `pytest` a cada Pull Request |
-| **Documentação como código** | `README.md`, diagramas Mermaid e `dbt docs` — tudo versionado junto com o código |
+| **Controle de versão** | Todo código no GitHub (DAGs, scripts, modelos dbt, docker-compose) |
+| **Ambiente reproduzível** | `docker compose up` sobe todo o ambiente em qualquer máquina com Docker |
+| **Testes de dados** | dbt tests (`not_null`, `unique`) + validações nos scripts pandas |
+| **Documentação como código** | `README.md` e diagramas Mermaid versionados junto ao código |
 
 ---
 
 ## 5.8 Resumo da Stack — Tabela de Decisão Final
 
-| Etapa | Tecnologia Escolhida | Alternativas Consideradas | Critério Decisivo |
+| Etapa | Tecnologia Escolhida | Alternativa em Produção | Critério Decisivo |
 |---|---|---|---|
-| Ingestão Streaming | **Apache Kafka** | AWS Kinesis, RabbitMQ | Log imutável + replay; 100% gratuito; integração nativa com Spark |
-| Ingestão Batch | **Apache Airflow** | Prefect, Luigi, cron | DAGs Python; UI de monitoramento; 100% open-source |
-| Object Storage | **MinIO** | AWS S3, GCS | API S3-compatível; 100% local e gratuito |
-| Motor Analítico | **DuckDB** | PostgreSQL, ClickHouse | In-process; lê Parquet S3 nativamente; adapter dbt; zero config |
-| Processamento | **Apache Spark** | pandas, Apache Flink | Batch + streaming no mesmo motor; PySpark; modo local |
-| Transformação SQL | **dbt Core** | SQL manual, Spark SQL | Testes nativos; linhagem; versionado em Git |
-| Qualidade de Dados | **Great Expectations** | dbt tests somente | Valida antes de promover Bronze→Silver; Data Docs HTML |
-| Visualização | **Apache Superset** | Power BI, Tableau, Metabase | 100% gratuito; conecta ao DuckDB; mapas; controle de acesso |
-| API | **FastAPI** | Flask, Django REST | Async; Swagger automático; leve; open-source |
-| Monitoramento | **Prometheus + Grafana** | Datadog, New Relic | 100% gratuito; padrão de mercado open-source |
-| Catálogo | **OpenMetadata** | Amundsen, DataHub | Linhagem visual; glossário; integração com dbt |
-| Infra | **Docker Compose** | Kubernetes, VMs | Sobe tudo com 1 comando; reproduzível; sem overhead de k8s |
+| Ingestão Streaming | **Scripts Python + boto3** | Apache Kafka + Kafka Connect | Sem overhead de broker; conceito de streaming preservado |
+| Ingestão Batch | **Apache Airflow** | Prefect, Dagster | UI completa; 100% open-source; retry nativo |
+| Object Storage | **MinIO** | AWS S3 | API S3-compatível; gratuito; migração trivial |
+| Motor Analítico | **DuckDB** | ClickHouse, BigQuery | In-process; lê Parquet S3; adapter dbt; zero config |
+| Processamento ETL | **Python + pandas** | Apache Spark | Sem JVM; simples; suficiente para volume do protótipo |
+| Transformação SQL | **dbt Core** | SQL manual | Testes nativos; linhagem; versionado em Git |
+| Visualização | **Apache Superset** | Power BI, Tableau | 100% gratuito; conecta ao DuckDB; mapas; roles |
+| Infraestrutura | **Docker Compose** | Kubernetes | Sobe tudo com 1 comando; reproduzível |

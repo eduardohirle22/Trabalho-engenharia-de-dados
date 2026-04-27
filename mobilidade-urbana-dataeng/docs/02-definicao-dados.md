@@ -2,35 +2,32 @@
 
 ## 2.1 Visão Geral — Mapa de Fontes de Dados
 
-O projeto UrbanFlow utiliza **7 fontes de dados** organizadas em dois grandes grupos: **streaming** (eventos contínuos que exigem processamento com baixa latência) e **operacionais/batch** (dados transacionais, históricos e de referência processados em lotes periódicos).
+O projeto UrbanFlow utiliza **5 fontes de dados** organizadas em dois grupos: **streaming simulado** (eventos contínuos gerados por script Python) e **batch** (dados extraídos periodicamente de sistemas e APIs).
+
+> **Decisão de protótipo:** As fontes de streaming (GPS, catracas, bicicletas) são **simuladas por scripts Python** que geram eventos realistas e os publicam diretamente como arquivos JSON no MinIO. Essa abordagem elimina a necessidade de infraestrutura MQTT física, mas preserva todos os conceitos de ingestão de eventos e estrutura de dados. Na Parte 2, os scripts de simulação são parte integrante do projeto.
 
 ```mermaid
 graph TD
-    subgraph STREAM["⚡ Streaming — Tempo Real (Kafka)"]
-        S1["🚌 GPS Ônibus\nJSON · MQTT · 30s/veículo"]
-        S2["🎫 Catracas Metrô\nAvro · Kafka · por evento"]
-        S3["🚲 IoT Bicicletas\nJSON · MQTT · 30 min/bike"]
+    subgraph STREAM["⚡ Streaming Simulado — Script Python"]
+        S1["🚌 GPS Ônibus\nJSON · Python script · a cada 30s"]
+        S2["🎫 Catracas Metrô\nJSON · Python script · por evento"]
+        S3["🚲 IoT Bicicletas\nJSON · Python script · a cada 30min"]
     end
 
-    subgraph BATCH["🗂️ Batch — Operacionais"]
+    subgraph BATCH["🗂️ Batch — Fontes Reais"]
         B1["🗄️ Histórico de Viagens\nCSV · PostgreSQL · diário"]
-        B2["📋 Cadastro Frota/Linhas\nJSON/CSV · ERP · semanal"]
-        B3["🌦️ Meteorologia INMET\nJSON · REST API · horário"]
-        B4["🔧 Ocorrências/Manutenção\nJSON · CMMS · diário"]
+        B2["🌦️ Meteorologia INMET\nJSON · REST API · horário"]
     end
 
-    STREAM -->|"Kafka Topics"| INGEST_S["Ingestão Streaming\n(Spark Structured Streaming)"]
-    BATCH -->|"Airflow DAGs"| INGEST_B["Ingestão Batch\n(Airflow + Python)"]
-
-    INGEST_S --> BRONZE["🥉 Bronze — MinIO"]
-    INGEST_B --> BRONZE
+    STREAM -->|"Python + boto3"| BRONZE["🥉 Bronze — MinIO"]
+    BATCH -->|"Airflow DAGs"| BRONZE
 ```
 
 ---
 
-## 2.2 Dados de Streaming (Tempo Real)
+## 2.2 Dados de Streaming Simulado
 
-Estes dados são gerados de forma contínua por dispositivos físicos embarcados nos veículos e estruturas. Por sua natureza de alta frequência e baixa latência, são transportados via **Apache Kafka** e processados com **Spark Structured Streaming**.
+Estes dados representam eventos contínuos gerados por dispositivos físicos nos veículos e estações. No protótipo, são **simulados por scripts Python** que publicam arquivos JSON particionados no MinIO, reproduzindo fielmente o comportamento e o volume de dados reais.
 
 ---
 
@@ -38,33 +35,26 @@ Estes dados são gerados de forma contínua por dispositivos físicos embarcados
 
 | Atributo | Detalhe |
 |---|---|
-| **Origem** | Dispositivos GPS/GSM embarcados nos 850 ônibus (protocolo MQTT) |
-| **Intermediário** | Bridge MQTT → Kafka via **Kafka Connect MQTT Source Connector** |
-| **Tópico Kafka** | `gps-onibus` (4 partições) |
+| **Origem (produção)** | Dispositivos GPS/GSM embarcados nos 850 ônibus |
+| **Origem (protótipo)** | Script Python `simulador_gps.py` rodando em loop |
 | **Formato** | JSON |
-| **Volume estimado** | ~850 msgs/min em operação normal; ~2.550 msgs/min no pico |
-| **Frequência de emissão** | A cada **30 segundos** por veículo ativo |
-| **Janela de operação** | 05h00–00h00 (19h/dia) |
-| **Latência esperada** | < 5 segundos (dispositivo → tópico Kafka) |
-| **Retenção no Kafka** | 24 horas |
+| **Volume simulado** | ~850 eventos/ciclo · ~1 arquivo JSON por execução |
+| **Frequência de geração** | A cada 30 segundos (simulado via `time.sleep(30)`) |
+| **Destino** | `bronze/gps_onibus/ano=YYYY/mes=MM/dia=DD/hora=HH/` |
 
-**Schema do evento (JSON):**
+**Schema do evento:**
 
 ```json
 {
-  "vehicle_id":     "BUS-0423",
-  "line_id":        "L042",
-  "direction":      "IDA",
-  "lat":            -23.5505,
-  "lon":            -46.6333,
-  "speed_kmh":      32.5,
-  "heading_deg":    215,
-  "occupancy_pct":  78,
-  "engine_on":      true,
-  "door_open":      false,
-  "status":         "on_route",
-  "timestamp":      "2026-04-09T08:14:30Z",
-  "schema_version": "1.2"
+  "vehicle_id":    "BUS-0423",
+  "line_id":       "L042",
+  "direction":     "IDA",
+  "lat":           -23.5505,
+  "lon":           -46.6333,
+  "speed_kmh":     32.5,
+  "occupancy_pct": 78,
+  "status":        "on_route",
+  "timestamp":     "2026-04-09T08:14:30Z"
 }
 ```
 
@@ -74,33 +64,28 @@ Estes dados são gerados de forma contínua por dispositivos físicos embarcados
 
 | Atributo | Detalhe |
 |---|---|
-| **Origem** | Catracas eletrônicas nas 18 estações (72 catracas no total) |
-| **Formato** | **Avro** com Schema Registry (garante evolução de schema com compatibilidade backward) |
-| **Tópico Kafka** | `catracas-metro` (2 partições) |
-| **Volume estimado** | ~15.000 eventos/hora no pico; ~3.000/hora nos demais horários |
-| **Latência esperada** | < 2 segundos |
-| **Retenção no Kafka** | 24 horas |
+| **Origem (produção)** | Catracas eletrônicas nas 18 estações |
+| **Origem (protótipo)** | Script Python `simulador_catracas.py` |
+| **Formato** | JSON |
+| **Volume simulado** | ~500 eventos/hora no pico |
+| **Destino** | `bronze/catracas/ano=YYYY/mes=MM/dia=DD/` |
 
-**Schema Avro (resumido):**
+**Schema do evento:**
 
 ```json
 {
-  "type": "record",
-  "name": "GateEvent",
-  "fields": [
-    {"name": "event_id",    "type": "string"},
-    {"name": "gate_id",     "type": "string"},
-    {"name": "station_id",  "type": "string"},
-    {"name": "direction",   "type": {"type": "enum", "symbols": ["ENTRY", "EXIT"]}},
-    {"name": "card_type",   "type": {"type": "enum", "symbols": ["SINGLE", "MONTHLY", "STUDENT", "SENIOR"]}},
-    {"name": "card_hash",   "type": "string"},
-    {"name": "fare_paid",   "type": "float"},
-    {"name": "timestamp",   "type": "long", "logicalType": "timestamp-millis"}
-  ]
+  "event_id":   "EVT-20260409-00123",
+  "gate_id":    "GATE-EST05-02",
+  "station_id": "EST-05",
+  "direction":  "ENTRY",
+  "card_type":  "MONTHLY",
+  "card_hash":  "a3f9b2c1...",
+  "fare_paid":  4.50,
+  "timestamp":  "2026-04-09T08:15:02Z"
 }
 ```
 
-> ⚠️ **Privacidade:** O `card_id` original é substituído por `card_hash` (SHA-256) já na publicação Kafka, garantindo pseudoanonimização antes do armazenamento.
+> ⚠️ **Privacidade:** O `card_id` original é substituído por `card_hash` (SHA-256) já no script simulador, antes do armazenamento.
 
 ---
 
@@ -108,13 +93,12 @@ Estes dados são gerados de forma contínua por dispositivos físicos embarcados
 
 | Atributo | Detalhe |
 |---|---|
-| **Origem** | Sensor embarcado em cada bicicleta (600 unidades) — GPS + acelerômetro + sensor de trava |
-| **Intermediário** | MQTT → Kafka Connect |
-| **Tópico Kafka** | `bikes-iot` (2 partições) |
+| **Origem (produção)** | Sensor embarcado em cada bicicleta (600 unidades) |
+| **Origem (protótipo)** | Script Python `simulador_bikes.py` |
 | **Formato** | JSON |
-| **Volume estimado** | ~1.200 msgs/hora durante o dia; heartbeat a cada 2h quando ociosa |
-| **Frequência** | A cada 30 min quando em uso; heartbeat de disponibilidade a cada 2h |
-| **Latência esperada** | < 10 segundos |
+| **Volume simulado** | ~600 eventos/ciclo (uma linha por bicicleta) |
+| **Frequência** | A cada 30 minutos quando em uso; heartbeat a cada 2h quando ociosa |
+| **Destino** | `bronze/bikes_iot/ano=YYYY/mes=MM/dia=DD/` |
 
 **Schema do evento:**
 
@@ -127,7 +111,6 @@ Estes dados são gerados de forma contínua por dispositivos físicos embarcados
   "lon":         -46.6441,
   "battery_pct": 67,
   "lock_status": "unlocked",
-  "trip_id":     "TRIP-20260409-0187-001",
   "timestamp":   "2026-04-09T09:32:00Z"
 }
 ```
@@ -136,7 +119,7 @@ Estes dados são gerados de forma contínua por dispositivos físicos embarcados
 
 ## 2.3 Dados Operacionais (Batch)
 
-Dados extraídos periodicamente de sistemas legados, bancos relacionais e APIs externas, processados em lotes agendados pelo **Apache Airflow**.
+Dados extraídos periodicamente de sistemas e APIs externas, processados em lotes agendados pelo **Apache Airflow**.
 
 ---
 
@@ -144,19 +127,20 @@ Dados extraídos periodicamente de sistemas legados, bancos relacionais e APIs e
 
 | Atributo | Detalhe |
 |---|---|
-| **Origem** | Banco **PostgreSQL** legado do sistema de bilhetagem |
-| **Mecanismo** | Consulta JDBC incremental via **Airflow PostgresHook** (filtro por `trip_date = T-1`) |
-| **Formato de saída** | CSV comprimido com gzip |
-| **Volume estimado** | ~120.000 registros/dia · ~15 MB/dia (~4 MB comprimido) |
+| **Origem** | Banco **PostgreSQL** que simula o sistema legado de bilhetagem |
+| **Mecanismo** | Consulta SQL incremental via Airflow `PostgresHook` |
+| **Formato** | CSV |
+| **Volume estimado** | ~10.000 registros/dia (protótipo com dados gerados pelo Faker) |
 | **Frequência** | Extração diária às **01h00** |
-| **Latência** | Dados de T-1 (dia anterior) |
+| **Destino** | `bronze/viagens/ano=YYYY/mes=MM/dia=DD/` |
 
 **Schema da tabela fonte:**
 
 ```sql
 CREATE TABLE trips (
-    trip_id        UUID         PRIMARY KEY,
-    modal          VARCHAR(20)  NOT NULL,   -- 'onibus', 'metro', 'bicicleta'
+    trip_id        VARCHAR(36)  PRIMARY KEY,
+    modal          VARCHAR(20)  NOT NULL,  -- 'onibus', 'metro', 'bicicleta'
+    line_id        VARCHAR(20),
     origin_stop_id VARCHAR(20),
     dest_stop_id   VARCHAR(20),
     card_hash      VARCHAR(64),
@@ -165,72 +149,42 @@ CREATE TABLE trips (
     departure_ts   TIMESTAMP,
     arrival_ts     TIMESTAMP,
     duration_min   SMALLINT,
-    vehicle_id     VARCHAR(20),
-    created_at     TIMESTAMP    DEFAULT NOW()
+    vehicle_id     VARCHAR(20)
 );
 ```
 
 ---
 
-### 2.3.2 Cadastro de Frota e Linhas
+### 2.3.2 Dados Meteorológicos (API INMET)
 
 | Atributo | Detalhe |
 |---|---|
-| **Origem** | ERP interno — módulo de gestão de frota |
-| **Formato** | JSON (linhas) + CSV (veículos) |
-| **Volume** | ~1.500 registros de veículos + ~120 definições de linhas |
-| **Frequência** | Semanal (segunda-feira às 06h00) |
-| **Uso** | Tabela de dimensão — enriquece dados de GPS e viagens com nome da linha, capacidade, tipo de veículo |
-
----
-
-### 2.3.3 Dados Meteorológicos (API INMET)
-
-| Atributo | Detalhe |
-|---|---|
-| **Origem** | API pública do INMET — `/estacao/dados/{codigo_estacao}` |
+| **Origem** | API pública do INMET |
 | **Formato** | JSON via REST |
 | **Frequência de coleta** | A cada **1 hora** |
-| **Latência** | ~1 hora (dados da última hora completa) |
-| **Uso** | Enriquecimento: correlacionar precipitação/temperatura com demanda de transporte e atrasos |
+| **Destino** | `bronze/clima/ano=YYYY/mes=MM/dia=DD/hora=HH/` |
+| **Uso** | Correlacionar precipitação com demanda de transporte e atrasos |
 
-> **Justificativa de inclusão:** Precipitação reduz o uso de bicicletas compartilhadas em ~40% e aumenta o tempo de viagem dos ônibus em até 25% (tráfego). Esses dados são essenciais para análises de demanda contextualizada.
-
----
-
-### 2.3.4 Ocorrências e Manutenção (CMMS)
-
-| Atributo | Detalhe |
-|---|---|
-| **Origem** | Sistema CMMS de gestão de manutenção — exportação JSON diária |
-| **Volume** | ~200 registros/dia |
-| **Frequência** | Diário às 02h00 |
-| **Uso** | Correlacionar falhas com atrasos nas linhas; calcular MTBF; alimentar alertas de manutenção preventiva |
+> **Justificativa:** Precipitação reduz o uso de bicicletas compartilhadas em ~40% e aumenta o tempo de viagem dos ônibus em até 25%. Esses dados enriquecem análises de demanda.
 
 ---
 
-## 2.4 Classificação Explícita e Comparativo
+## 2.4 Classificação e Comparativo das Fontes
 
-### Streaming vs. Batch — Diferenças Fundamentais
+| Fonte | Tipo | Formato | Frequência | Volume/dia | Destino Bronze |
+|---|---|---|---|---|---|
+| GPS Ônibus | **Streaming simulado** | JSON | 30s/ciclo | ~2.900 arquivos | `bronze/gps_onibus/` |
+| Catracas Metrô | **Streaming simulado** | JSON | Por evento | ~12.000 eventos | `bronze/catracas/` |
+| IoT Bicicletas | **Streaming simulado** | JSON | 30min/ciclo | ~600 eventos | `bronze/bikes_iot/` |
+| Histórico Viagens | **Batch** | CSV | Diário 01h00 | ~10.000 linhas | `bronze/viagens/` |
+| Meteorologia | **Batch** | JSON | Horário | ~24 arquivos | `bronze/clima/` |
 
-| Dimensão | Dados de Streaming | Dados Operacionais (Batch) |
+### Diferenças Conceituais: Streaming vs. Batch
+
+| Dimensão | Streaming Simulado | Batch |
 |---|---|---|
-| **Frequência** | Contínuo (segundos a minutos) | Periódico (horário, diário, semanal) |
-| **Latência tolerada** | Segundos (< 30s) | Horas a dias (T-1 aceitável) |
-| **Volume por evento** | Pequeno (< 1 KB por msg) | Grande (CSV com milhares de linhas) |
-| **Padrão de entrega** | Push (dispositivo publica no broker) | Pull (pipeline busca na fonte) |
-| **Tecnologia de transporte** | Apache Kafka (tópicos) | Airflow DAGs (JDBC, REST) |
-| **Formato preferencial** | JSON / Avro | CSV / JSON |
-| **Caso de uso principal** | Monitoramento operacional em tempo real | Análise histórica e relatórios |
-
-### Tabela Resumo das 7 Fontes
-
-| Fonte | Tipo | Formato | Frequência | Volume/dia | Latência | Destino Bronze |
-|---|---|---|---|---|---|---|
-| GPS Ônibus | **Streaming** | JSON | 30s/veículo | ~2,4M msgs | < 5s | `bronze/gps_onibus/` |
-| Catracas Metrô | **Streaming** | Avro | Por evento | ~100K eventos | < 2s | `bronze/catracas/` |
-| IoT Bicicletas | **Streaming** | JSON | 30min/bike | ~29K msgs | < 10s | `bronze/bikes_iot/` |
-| Histórico Viagens | **Batch** | CSV | Diário 01h00 | ~120K linhas | T-1 | `bronze/viagens/` |
-| Frota e Linhas | **Batch** | JSON/CSV | Semanal | ~1.500 linhas | D-7 | `bronze/frota/` |
-| Meteorologia | **Batch** | JSON | Horário | ~288 linhas | ~1h | `bronze/clima/` |
-| Manutenção | **Batch** | JSON | Diário 02h00 | ~200 linhas | T-1 | `bronze/manutencao/` |
+| **Frequência** | Contínuo (segundos a minutos) | Periódico (horário ou diário) |
+| **Latência tolerada** | Minutos | Horas (T-1 aceitável) |
+| **Padrão de entrega** | Push (script publica continuamente) | Pull (DAG busca na fonte) |
+| **Tecnologia** | Script Python + boto3 | Airflow DAG + PostgresHook/HTTP |
+| **Caso de uso** | Monitoramento operacional | Análise histórica e relatórios |
