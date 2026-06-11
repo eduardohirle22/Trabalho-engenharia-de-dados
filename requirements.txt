@@ -1,18 +1,27 @@
 # UrbanFlow — Dependências Python
-# Instalar: pip install -r requirements.txt
+# Instalar com: pip install -r requirements.txt
+# Requer Python 3.10+
 
 # ─── Pipeline de dados ────────────────────────────────────────────────────────
-pandas>=2.0.0
-pyarrow>=13.0.0
-duckdb>=1.0.0
-dbt-duckdb>=1.8.0
+pandas==2.2.2
+pyarrow==16.1.0
+duckdb==0.10.3
 
-# ─── Ingestão e storage ───────────────────────────────────────────────────────
-boto3>=1.28.0
+# ─── Armazenamento / MinIO ───────────────────────────────────────────────────
+boto3==1.34.0
+botocore==1.34.0
 
-# ─── Geração de dados sintéticos ─────────────────────────────────────────────
-faker>=20.0.0
+# ─── Banco de dados ──────────────────────────────────────────────────────────
+psycopg2-binary==2.9.9
 
-# ─── Conexão com PostgreSQL ───────────────────────────────────────────────────
-psycopg2-binary>=2.9.0
-sqlalchemy>=2.0.0
+# ─── dbt ─────────────────────────────────────────────────────────────────────
+dbt-core==1.8.3
+dbt-duckdb==1.8.1
+
+# ─── API Serving ─────────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.30.0
+httpx==0.27.0
+
+# ─── Utilitários ─────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
