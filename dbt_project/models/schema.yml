@@ -1,0 +1,174 @@
+version: 2
+
+# ─── Sources ─────────────────────────────────────────────────────────────────
+sources:
+  - name: silver
+    description: "Camada Silver — Parquet validado no sistema de arquivos / MinIO"
+    meta:
+      owner: "urbanflow-data-team"
+      sla: "99% qualidade contratada"
+
+# ─── Staging ─────────────────────────────────────────────────────────────────
+models:
+  - name: stg_gps_onibus
+    description: "Eventos GPS dos ônibus após tipagem e enriquecimento"
+    columns:
+      - name: vehicle_id
+        description: "Identificador único do veículo"
+        tests:
+          - not_null
+      - name: line_id
+        description: "Identificador da linha de ônibus"
+        tests:
+          - not_null
+      - name: direction
+        description: "Direção da viagem"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["IDA", "VOLTA"]
+      - name: lat
+        description: "Latitude do evento GPS"
+        tests:
+          - not_null
+      - name: lon
+        description: "Longitude do evento GPS"
+        tests:
+          - not_null
+      - name: speed_kmh
+        description: "Velocidade em km/h"
+        tests:
+          - not_null
+      - name: status
+        description: "Status operacional do veículo"
+        tests:
+          - accepted_values:
+              values: ["on_route", "at_stop", "delayed", "out_of_service"]
+      - name: periodo_dia
+        description: "Período do dia classificado"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["manha_pico", "tarde_pico", "entrepico", "noturno"]
+      - name: data_evento
+        description: "Data do evento (partição)"
+        tests:
+          - not_null
+
+  - name: stg_catracas
+    description: "Eventos de bilhetagem nas catracas do VLT"
+    columns:
+      - name: event_id
+        description: "Identificador único do evento de catraca"
+        tests:
+          - not_null
+          - unique
+      - name: station_id
+        description: "Estação onde ocorreu o evento"
+        tests:
+          - not_null
+      - name: direction
+        description: "Entrada ou saída"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["ENTRY", "EXIT"]
+      - name: card_type
+        description: "Tipo do cartão de transporte"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["SINGLE", "MONTHLY", "STUDENT", "SENIOR"]
+      - name: fare_paid_brl
+        description: "Valor pago em BRL (0 = gratuidade)"
+        tests:
+          - not_null
+      - name: card_hash
+        description: "Hash SHA-256 do cartão (LGPD — cartão real nunca armazenado)"
+        tests:
+          - not_null
+      - name: data_evento
+        tests:
+          - not_null
+
+# ─── Intermediate ─────────────────────────────────────────────────────────────
+  - name: int_passageiros_por_hora
+    description: "Passageiros agregados por estação × hora × período"
+    columns:
+      - name: station_id
+        tests:
+          - not_null
+      - name: data_evento
+        tests:
+          - not_null
+      - name: hora_do_dia
+        tests:
+          - not_null
+      - name: entradas
+        tests:
+          - not_null
+      - name: periodo_dia
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["manha_pico", "tarde_pico", "entrepico", "noturno"]
+
+# ─── Marts (Gold) ─────────────────────────────────────────────────────────────
+  - name: kpi_operacional_diario
+    description: "KPIs operacionais diários por linha — tabela principal Gold"
+    columns:
+      - name: data_evento
+        tests:
+          - not_null
+      - name: line_id
+        tests:
+          - not_null
+      - name: direction
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["IDA", "VOLTA"]
+      - name: otp_pct
+        description: "On-Time Performance em %. Meta: >= 85%"
+        tests:
+          - not_null
+      - name: semaforo_otp
+        description: "Classificação visual de performance"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["VERDE", "AMARELO", "VERMELHO"]
+      - name: velocidade_media_kmh
+        tests:
+          - not_null
+      - name: veiculos_ativos
+        tests:
+          - not_null
+      - name: periodo_dia
+        tests:
+          - accepted_values:
+              values: ["manha_pico", "tarde_pico", "entrepico", "noturno"]
+
+  - name: agg_demanda_por_hora
+    description: "Demanda de passageiros por estação e hora"
+    columns:
+      - name: station_id
+        tests:
+          - not_null
+      - name: data_evento
+        tests:
+          - not_null
+      - name: hora_do_dia
+        tests:
+          - not_null
+      - name: total_entradas
+        tests:
+          - not_null
+      - name: rank_entradas_dia
+        description: "Ranking da estação por volume de entradas no dia"
+        tests:
+          - not_null
+      - name: periodo_dia
+        tests:
+          - accepted_values:
+              values: ["manha_pico", "tarde_pico", "entrepico", "noturno"]
