@@ -1,36 +1,38 @@
-# ─── Credenciais e ambiente ───────────────────────────────────────────────────
-.env
-*.env.local
+# Dados gerados localmente
+poc/bronze/
+poc/silver/
+poc/gold/
+poc/evidencias/
+data/
 
-# ─── Python ───────────────────────────────────────────────────────────────────
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
 .venv/
 venv/
-env/
 *.egg-info/
+dist/
+build/
 
-# ─── dbt ──────────────────────────────────────────────────────────────────────
-poc/dbt_project/target/
-poc/dbt_project/logs/
-poc/dbt_project/.user.yml
-poc/dbt_project/dbt_packages/
+# dbt
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/.user.yml
 
-# ─── Dados gerados (Bronze/Silver/Gold — não versionar dados) ─────────────────
-poc/bronze/
-poc/silver/
-poc/gold/
+# Ambiente
+.env
+*.env.local
 
-# ─── Jupyter ──────────────────────────────────────────────────────────────────
-.ipynb_checkpoints/
-*.ipynb
+# DuckDB
+*.duckdb
+*.duckdb.wal
 
-# ─── Sistema ──────────────────────────────────────────────────────────────────
+# Parquet gerados
+*.parquet
+
+# macOS / IDEs
 .DS_Store
-Thumbs.db
-
-# ─── IDEs ─────────────────────────────────────────────────────────────────────
-.vscode/
 .idea/
+.vscode/
 *.swp
