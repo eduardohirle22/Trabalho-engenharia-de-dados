@@ -1,8 +1,8 @@
 # UrbanFlow — Plataforma de Engenharia de Dados para Mobilidade Urbana
 
-> **Disciplina:** Engenharia de Dados — Parte 1: Planejamento Arquitetural  
-> **Instituição:** Centro Universitário de Brasília (CEUB)  
-> **Entrega:** 30/04/2026
+> **Disciplina:** Engenharia de Dados — **Parte 2: Implementação do Protótipo**
+> **Instituição:** Centro Universitário de Brasília (CEUB)
+> **Entrega:** 25/06/2026
 
 ---
 
@@ -17,176 +17,145 @@
 
 ## O Projeto
 
-A **UrbanFlow Mobilidade S.A.** opera três modais de transporte em uma cidade de 800 mil habitantes — ônibus, metrô leve e bicicletas compartilhadas — com sistemas legados completamente isolados entre si. A equipe de dados gasta 3+ dias por mês extraindo planilhas manualmente de cada sistema para gerar relatórios que deveriam ser automáticos.
-
-Este projeto planeja e prova em conceito uma **plataforma de dados moderna** que quebra esses silos, aplicando uma arquitetura Lakehouse com Padrão Medalhão, 100% open-source e executável localmente.
+A **UrbanFlow Mobilidade S.A.** opera três modais de transporte — ônibus, metrô leve (VLT) e bicicletas compartilhadas — com sistemas legados isolados. Esta plataforma implementa o ciclo completo de engenharia de dados:
 
 ```
-Problema                    Solução
-────────                    ───────
-PostgreSQL legado (ônibus)  ╮
-Software proprietário (VLT) ├─→  UrbanFlow Data Platform  ─→  Dashboards
-App mobile (bicicletas)     ╯     (Bronze → Silver → Gold)     Relatórios automáticos
-                                                               KPIs operacionais
+Simuladores IoT  ──╮
+Banco Legado PG  ──┤──▶  Bronze (MinIO)  ──▶  Silver (Parquet)  ──▶  Gold (DuckDB)  ──▶  API FastAPI
+                   ╯         ↑                      ↑                     ↑
+                           Imutável             pandas ETL            dbt Core
+                                                 validado            28 testes
 ```
 
 ---
 
-## Arquitetura — Visão Geral
+## Diagrama de Arquitetura — As-Built (Parte 2)
+
+> Diagrama final do que foi **efetivamente implementado** e está rodando.
 
 ```mermaid
 flowchart LR
-    subgraph FONTES["📡 Fontes"]
-        S1["🚌 Simulador GPS\nJSON · 30s/ciclo"]
-        S2["🎫 Simulador Catracas\nJSON · por evento"]
-        S3["🚲 Simulador Bikes\nJSON · 30min/ciclo"]
-        B1["🗄️ PostgreSQL\nViagens · CSV · diário"]
-        B2["🌦️ API INMET\nClima · JSON · horário"]
+    subgraph FONTES["📡 Fontes de Dados"]
+        S1["🚌 simulador_gps.py\nJSON · 300 veículos/ciclo"]
+        S2["🎫 simulador_catracas.py\nJSON · 150 eventos/ciclo"]
+        S3["🚲 simulador_bikes.py\nJSON · 30 estações/ciclo"]
+        PG["🗄️ PostgreSQL Legado\nviagens + bilhetagem\n5.000 registros · 30 dias"]
     end
 
-    subgraph LAKE["🗃️ MinIO — Lakehouse Medalhão"]
-        BRONZE["🥉 Bronze\nDados brutos · JSON/CSV\nImutável · particionado"]
-        SILVER["🥈 Silver\nDados limpos · Parquet\nValidado · enriquecido"]
-        GOLD["🥇 Gold\nModelos analíticos\nDuckDB · Star Schema"]
+    subgraph ORQUESTRACAO["⚙️ Orquestração — Airflow"]
+        DAG["urbanflow_pipeline\nSchedule: @hourly\n6 tasks em cadeia"]
     end
 
-    subgraph CONSUMO["📊 Consumo"]
-        SUPERSET["Apache Superset\nDashboards"]
-        DUCKDB["DuckDB\nAd-hoc SQL"]
+    subgraph BRONZE["🥉 MinIO Bronze\nurbanflow-bronze"]
+        B1["gps_onibus/\nano=YYYY/mes=MM/dia=DD/hora=HH/\n*.json"]
+        B2["catracas/\nano=YYYY/mes=MM/dia=DD/\n*.json"]
+        B3["bikes/\nano=YYYY/mes=MM/dia=DD/\n*.json"]
+        B4["viagens_postgres/\nbatch diário · *.json"]
     end
 
-    S1 & S2 & S3 -->|"Scripts Python + boto3"| BRONZE
-    B1 & B2 -->|"Airflow DAGs"| BRONZE
-    BRONZE -->|"pandas ETL"| SILVER
-    SILVER -->|"dbt Core"| GOLD
-    GOLD --> SUPERSET & DUCKDB
+    subgraph SILVER["🥈 MinIO Silver\nurbanflow-silver"]
+        SV1["gps_onibus_clean/\ndata=YYYY-MM-DD/\npart-00000.snappy.parquet"]
+        SV2["catracas_clean/\npart-00000.snappy.parquet"]
+        SV3["bikes_clean/\npart-00000.snappy.parquet"]
+        Q["quarentena/\nregistros rejeitados"]
+    end
+
+    subgraph GOLD["🥇 Gold — DuckDB"]
+        G1["kpi_operacional_diario\nOTP · velocidade · ocupação\nsemáforo de performance"]
+        G2["agg_demanda_por_hora\nentradas × estação × período"]
+        G3["stg_gps_onibus\nstg_catracas\n(views)"]
+    end
+
+    subgraph CONSUMO["📊 Consumo / Serving"]
+        API["🔌 FastAPI\nGET /kpis/operacional\nGET /kpis/demanda\nGET /frota/status\nGET /resumo/dashboard\n:8000"]
+        DOCS["📖 Swagger UI\n/docs"]
+    end
+
+    S1 & S2 & S3 --> DAG
+    PG -->|"batch_postgres task"| DAG
+    DAG -->|"task simular_*"| B1 & B2 & B3
+    DAG -->|"task batch_postgres"| B4
+    B1 & B2 & B3 & B4 -->|"task bronze_to_silver\npandas ETL"| SV1 & SV2 & SV3
+    SV1 & SV2 & SV3 -->|"task dbt_run"| G1 & G2 & G3
+    G1 & G2 -->|"task dbt_test\n28 testes"| GOLD
+    SV1 & SV2 -->|"leitura direta\nread_parquet()"| API
+    G1 & G2 -->|"DuckDB"| API
+    API --> DOCS
+
+    style BRONZE fill:#cd7f32,color:#fff
+    style SILVER fill:#c0c0c0,color:#000
+    style GOLD   fill:#ffd700,color:#000
 ```
 
 ---
 
-## Stack Tecnológica
+## Stack Tecnológica — As-Built
 
 | Camada | Tecnologia | Função |
 |---|---|---|
-| Ingestão — eventos | Scripts Python + boto3 | Simulam IoT; publicam JSON particionado no MinIO |
-| Ingestão — batch | Apache Airflow | DAGs agendadas: PostgreSQL e API INMET |
-| Armazenamento | MinIO | Object storage S3-compatível (Bronze, Silver, Gold) |
-| ETL Bronze → Silver | Python + pandas | Limpeza, dedup, outlier flag, Parquet Snappy |
-| Transformação SQL | dbt Core | Modelos Silver → Gold; 26 testes de qualidade |
-| Motor analítico | DuckDB | Lê Parquet diretamente; adapter nativo do dbt |
-| Visualização | Apache Superset | Dashboards BI conectados ao DuckDB |
-| Banco legado | PostgreSQL | Simula sistema de bilhetagem + metadados Airflow |
-| Infraestrutura | Docker Compose | `docker compose up` sobe tudo em ~2 min |
+| **Ingestão — eventos** | Python + scripts locais | 3 simuladores: GPS (850 veículos), catracas (18 estações), bikes (30 estações) |
+| **Ingestão — batch** | Apache Airflow 2.9 | DAG `urbanflow_pipeline`: 6 tasks, `@hourly`, extração do Postgres legado |
+| **Armazenamento** | MinIO (S3-compatível) | 4 buckets: bronze, silver, gold, quarentena |
+| **Banco legado** | PostgreSQL 15 | 5.000 viagens sintéticas (30 dias), bilhetagem por estação |
+| **ETL Bronze→Silver** | Python 3.11 + pandas 2.2 | Dedup, nulos, outliers, quarentena, Parquet Snappy |
+| **Transformação SQL** | dbt Core + DuckDB adapter | 5 modelos, 28 testes de qualidade |
+| **Motor analítico** | DuckDB 0.10 | Lê Parquet via `read_parquet()`, banco `.duckdb` para Gold |
+| **Serving** | FastAPI 0.111 + Uvicorn | 6 endpoints REST com Swagger UI |
+| **Infraestrutura** | Docker Compose | `docker compose up -d` sobe tudo em ~3 min |
 
-> **Requisito:** ~3 GB RAM · Docker instalado · Python 3.10+
+> **Requisitos:** Docker 24+, ~3 GB RAM, Python 3.10+
 
 ---
 
-## Prova de Conceito — Rodando
+## Como Rodar
 
-A POC valida a stack sem Docker. Execute e veja o pipeline ponta a ponta funcionar:
+### Opção A — POC local (sem Docker, mais rápido)
 
 ```bash
-# 1. Clone o repositório
-git clone https://github.com/seu-usuario/urbanflow-dataeng.git
-cd urbanflow-dataeng
-
-# 2. Instale as dependências
+# 1. Clone e instale dependências
+git clone https://github.com/eduardohirle22/Trabalho-engenharia-de-dados.git
+cd Trabalho-engenharia-de-dados
 pip install -r requirements.txt
 
-# 3. Execute o pipeline completo
-cd poc/
+# 2. Execute o pipeline completo
 python poc_demo.py
 ```
 
 **Saída esperada:**
 ```
-ETAPA 1 — Bronze: 900 eventos GPS + 300 catracas → JSON particionado
-ETAPA 2 — Silver: pandas ETL → 2 Parquets Snappy (300 + 150 linhas)
-ETAPA 3 — Gold:   dbt run  PASS=5   WARN=0  ERROR=0
-                   dbt test PASS=26  WARN=0  ERROR=0
-ETAPA 4 — DuckDB: kpi_operacional_diario (120 linhas) ✅
-                   agg_demanda_por_hora   (18 linhas)  ✅
+ETAPA 1 — Bronze: 900 GPS + 300 catracas + 30 bikes
+ETAPA 2 — Silver: pandas ETL → 3 Parquets Snappy  (taxa qualidade ≥ 99%)
+ETAPA 3 — Gold:   dbt run  PASS=5 | dbt test PASS=28
+ETAPA 4 — DuckDB: kpi_operacional_diario ✅  |  agg_demanda_por_hora ✅
 ```
 
-Evidências geradas em `poc/evidencias/` com logs reais de cada etapa.
+Evidências geradas em `poc/evidencias/` (5 arquivos de log auditáveis).
 
 ---
 
-## Padrão Medalhão — As Três Camadas
+### Opção B — Stack completa com Docker
 
-| Camada | Princípio | Formato | O que garante |
-|---|---|---|---|
-| 🥉 **Bronze** | Imutável — dados nunca sobrescritos | JSON, CSV original | Auditoria e reprocessamento sempre possíveis |
-| 🥈 **Silver** | Qualidade contratada | Parquet (Snappy) | Dedup, nulos removidos, timestamps UTC, outliers sinalizados |
-| 🥇 **Gold** | Produto de dados | Parquet + DuckDB | Star Schema, SLA definido, testes dbt passando |
+```bash
+cd docker/
 
----
+# 1. Sobe todos os serviços
+docker compose up -d
 
-## Domínios de Negócio (DDD)
+# 2. Aguarda Airflow inicializar (~2 min) e acessa
+#    Airflow:    http://localhost:8080  (admin / admin123)
+#    MinIO:      http://localhost:9001  (minioadmin / minioadmin123)
+#    API:        http://localhost:8000/docs
 
-```mermaid
-graph TD
-    subgraph D1["🚌 Operações de Frota"]
-        S1A["Rastreamento GPS"]
-        S1B["Controle de Manutenção"]
-    end
-    subgraph D2["🎫 Bilhetagem e Tarifas"]
-        S2A["Validação de Bilhetes"]
-        S2B["Consolidação de Receita"]
-    end
-    subgraph D3["🚲 Mobilidade Ativa"]
-        S3A["Monitoramento de Estações"]
-        S3B["Registro de Trips"]
-    end
-    subgraph D4["📊 Analytics e Planejamento"]
-        S4A["KPIs Operacionais"]
-        S4B["Análise de Demanda"]
-        S4C["Relatórios Regulatórios"]
-    end
-    subgraph D5["🔧 Infraestrutura (Transversal)"]
-        S5A["Ingestão"]
-        S5B["Qualidade"]
-        S5C["Monitoramento"]
-    end
+# 3. Aciona o pipeline manualmente (ou aguarda o schedule @hourly)
+docker compose exec airflow-webserver \
+  airflow dags trigger urbanflow_pipeline
 
-    D5 --> D1 & D2 & D3
-    D1 & D2 & D3 --> D4
+# 4. Acompanha o progresso
+docker compose logs -f airflow-scheduler
+
+# 5. Encerra
+docker compose down
 ```
-
----
-
-## Qualidade de Dados
-
-```mermaid
-flowchart LR
-    BR["🥉 Bronze\n(Raw)"] -->|"pandas"| SV["🥈 Silver\n(Parquet)"] -->|"dbt"| GO["🥇 Gold\n(DuckDB)"]
-    BR -->|"❌ inválidos"| QU["quarentena/"]
-```
-
-**Validações pandas (Bronze → Silver):**
-- `dropna()` — campos obrigatórios não nulos
-- `drop_duplicates()` — chave `(vehicle_id, timestamp)`
-- Filtro `speed_kmh ∈ [0, 120]` — inválidos marcados `is_outlier=True`
-- `pd.to_datetime(utc=True)` — normalização de timestamps
-
-**Testes dbt (Silver → Gold) — 26 testes, todos passando:**
-- `not_null` em todos os campos-chave
-- `unique` em PKs de fatos e dimensões
-- `accepted_values` — modal, direction, status, período
-- `relationships` — integridade referencial entre modelos
-
----
-
-## Modelos dbt Gold
-
-| Modelo | Tipo | Descrição |
-|---|---|---|
-| `stg_gps_onibus` | View | GPS Silver padronizado |
-| `stg_catracas` | View | Catracas Silver padronizado |
-| `int_passageiros_por_hora` | View | Agregação intermediária por estação/hora |
-| `kpi_operacional_diario` | **Table** | OTP, velocidade, ocupação por linha e dia |
-| `agg_demanda_por_hora` | **Table** | Demanda por estação × hora × período |
 
 ---
 
@@ -195,67 +164,171 @@ flowchart LR
 ```
 urbanflow-dataeng/
 │
-├── README.md                          ← Este arquivo
-├── requirements.txt                   ← Dependências Python
-├── .env.example                       ← Template de variáveis de ambiente
-├── .gitignore
+├── README.md                         ← Este arquivo (Parte 2)
+├── requirements.txt                  ← Dependências Python (POC)
+├── poc_demo.py                       ← Pipeline ponta a ponta (1 comando)
 │
-├── docs/                              ← Documentação completa (seções 4.1–4.6)
-│   ├── 01-descricao-projeto.md        ← Contexto, problema, stakeholders
-│   ├── 02-definicao-dados.md          ← Fontes, schemas, classificação
-│   ├── 03-dominios-servicos.md        ← DDD — domínios e serviços
-│   ├── 04-arquitetura.md              ← Lakehouse, Medalhão, trade-offs
-│   ├── 05-tecnologias.md              ← Stack completa com justificativas
-│   └── 06-consideracoes-finais.md     ← Riscos, roadmap Parte 2, referências
+├── ingestao/
+│   ├── simulador_gps.py              ← 850 veículos, MinIO ou local
+│   ├── simulador_catracas.py         ← 18 estações VLT, LGPD (SHA-256)
+│   ├── simulador_bikes.py            ← 30 estações de bikes
+│   ├── bronze_to_silver.py           ← ETL pandas + quarentena
+│   └── init_postgres.sql             ← Banco legado: 5.000 viagens sintéticas
 │
-└── poc/                               ← Prova de Conceito (roda sem Docker)
-    ├── README.md                      ← Como rodar a POC
-    ├── poc_demo.py                    ← Pipeline ponta a ponta (1 comando)
-    ├── bronze_to_silver.py            ← ETL pandas validado
-    ├── docker-compose.yml             ← Ambiente completo (Parte 2)
-    │
-    ├── simuladores/
-    │   ├── simulador_gps.py           ← 850 veículos, modo local ou MinIO
-    │   └── simulador_catracas.py      ← 18 estações, SHA-256+salt (LGPD)
-    │
-    ├── dbt_project/
-    │   ├── dbt_project.yml
-    │   ├── profiles.yml               ← DuckDB local (POC) → MinIO (prod)
-    │   └── models/
-    │       ├── staging/               ← stg_gps_onibus · stg_catracas
-    │       ├── intermediate/          ← int_passageiros_por_hora
-    │       ├── marts/                 ← kpi_operacional_diario · agg_demanda_por_hora
-    │       └── schema.yml             ← 26 testes de qualidade
-    │
-    ├── scripts/
-    │   └── init_postgres.sql          ← Banco legado com 5.000 viagens sintéticas
-    │
-    └── evidencias/                    ← Logs reais de cada etapa da POC
-        ├── 01_bronze_gerado.txt
-        ├── 02_silver_gerado.txt
-        └── 04_duckdb_queries.txt
+├── orchestration/
+│   └── dags/
+│       └── urbanflow_pipeline.py     ← DAG Airflow completo (@hourly)
+│
+├── dbt_project/
+│   ├── dbt_project.yml
+│   ├── profiles.yml                  ← DuckDB (dev + prod)
+│   └── models/
+│       ├── staging/
+│       │   ├── stg_gps_onibus.sql
+│       │   └── stg_catracas.sql
+│       ├── intermediate/
+│       │   └── int_passageiros_por_hora.sql
+│       ├── marts/
+│       │   ├── kpi_operacional_diario.sql
+│       │   └── agg_demanda_por_hora.sql
+│       └── schema.yml                ← 28 testes de qualidade
+│
+├── serving/
+│   ├── main.py                       ← API FastAPI + DuckDB
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── docker/
+│   ├── docker-compose.yml            ← Stack completa
+│   └── init_multi_db.sh
+│
+├── docs/
+│   └── (documentação Parte 1 — mantida)
+│
+└── poc/
+    └── evidencias/                   ← Logs auditáveis das execuções
 ```
 
 ---
 
-## Documentação Completa
+## Ciclo de Dados — Padrão Medalhão
 
-Cada seção do enunciado corresponde a um arquivo em `docs/`:
+| Camada | Princípio | Formato | Garantias |
+|---|---|---|---|
+| 🥉 **Bronze** | Imutável — dado nunca sobrescrito | JSON original particionado | Auditoria e reprocessamento total |
+| 🥈 **Silver** | Qualidade contratada | Parquet Snappy | Dedup · nulos removidos · timestamps UTC · outliers flagados · quarentena |
+| 🥇 **Gold** | Produto de dados | DuckDB (tabelas + views) | Star Schema · 28 testes dbt · SLA definido |
 
-1. [Descrição do Projeto](./docs/01-descricao-projeto.md) — contexto de negócio, AS-IS, TO-BE e stakeholders
-2. [Definição e Classificação dos Dados](./docs/02-definicao-dados.md) — 5 fontes com schemas, volumes e latências
-3. [Domínios e Serviços](./docs/03-dominios-servicos.md) — DDD aplicado à engenharia de dados
-4. [Arquitetura e Fluxo de Dados](./docs/04-arquitetura.md) — Lakehouse + Medalhão, diagramas e trade-offs
-5. [Tecnologias](./docs/05-tecnologias.md) — stack completa com justificativas e correntes transversais
-6. [Considerações Finais](./docs/06-consideracoes-finais.md) — riscos, plano Parte 2 e referências
+### Qualidade de Dados
+
+```
+Bronze → Silver (pandas ETL)          Silver → Gold (dbt)
+─────────────────────────────         ──────────────────────────
+✓ dropna() campos obrigatórios        ✓ not_null em todos os PKs
+✓ drop_duplicates() por chave         ✓ unique em event_id
+✓ speed_kmh ∈ [0,120] → is_outlier   ✓ accepted_values: direction, status
+✓ coordenadas lat/lon válidas         ✓ accepted_values: periodo_dia
+✓ direction ∈ {ENTRY, EXIT}           ✓ accepted_values: semaforo_otp
+✓ fare_paid ≥ 0                       → 28 testes, todos devem passar
+✓ registros inválidos → quarentena/
+```
 
 ---
 
-## Próximos Passos — Parte 2
+## API de Serving — Endpoints
+
+| Método | Endpoint | Descrição |
+|---|---|---|
+| GET | `/health` | Status da API e disponibilidade dos dados |
+| GET | `/kpis/operacional` | KPIs diários por linha (OTP, velocidade, ocupação, semáforo) |
+| GET | `/kpis/demanda` | Demanda por estação × hora × período do dia |
+| GET | `/frota/status` | Último evento GPS por veículo (posição atual da frota) |
+| GET | `/estacoes/ocupacao` | Ocupação das estações do VLT por data |
+| GET | `/resumo/dashboard` | Payload agregado para dashboard executivo |
+
+Documentação interativa: `http://localhost:8000/docs` (Swagger UI)
+
+---
+
+## Orquestração — DAG Airflow
 
 ```
-Semana 1 → Docker Compose: MinIO + PostgreSQL + Airflow + Superset
-Semana 2 → Simuladores publicando no MinIO + DAGs batch funcionando
-Semana 3 → Pipeline pandas completo + dbt Gold com dados reais
-Semana 4 → Dashboards Superset + testes finais + documentação
+simular_gps ──╮
+simular_catracas ──┤
+simular_bikes  ──┤──▶  bronze_to_silver ──▶  dbt_run ──▶  dbt_test ──▶  notifica_sucesso
+batch_postgres ──╯
 ```
+
+- **Schedule:** `0 * * * *` (a cada hora)
+- **Retries:** 2 tentativas com backoff exponencial
+- **XCom:** métricas de qualidade passadas entre tasks
+- **Variáveis:** `gps_veiculos_por_ciclo`, `catracas_eventos_por_ciclo` (configuráveis no UI)
+
+---
+
+## Segurança e Governança
+
+| Aspecto | Implementação |
+|---|---|
+| **LGPD** | `card_id` nunca persiste — apenas SHA-256+salt (`card_hash`) |
+| **Auditoria** | Bronze imutável, metadados `_processed_at` e `_source` em todo registro Silver |
+| **Credenciais** | Variáveis de ambiente + `.env.example`; sem secrets hardcoded |
+| **Quarentena** | Registros inválidos isolados em bucket `urbanflow-quarentena` |
+| **Qualidade** | 28 testes dbt executados a cada ciclo; falha bloqueia Gold |
+
+---
+
+## Relatório de Mudanças — Parte 1 → Parte 2
+
+### O que mudou e por quê
+
+> *"Dificilmente o que foi planejado é executado sem alterações."*
+
+#### 1. Apache Superset substituído pela FastAPI
+
+**Plano (Parte 1):** Apache Superset como interface de visualização.
+
+**Executado (Parte 2):** API FastAPI com Swagger UI + consultas DuckDB diretas.
+
+**Justificativa técnica:** O Superset requer ~1,5 GB de RAM adicionais e inicialização de ~5 minutos para criar usuários, importar dashboards e configurar conexões — inviável em ambiente de desenvolvimento com recursos limitados. A FastAPI entrega o mesmo valor de prova de conceito: dado pronto para consumo, consultável interativamente, com documentação automática e latência < 50ms. Superset pode ser adicionado em produção como camada adicional sobre a mesma API.
+
+#### 2. Simulador de Bicicletas adicionado (estava apenas planejado)
+
+**Plano (Parte 1):** Mencionado como fonte futura.
+
+**Executado (Parte 2):** `simulador_bikes.py` implementado com 30 estações, status de disponibilidade e integração ao pipeline Bronze→Silver e à DAG do Airflow.
+
+**Justificativa:** Completar os três modais do problema de negócio (ônibus, VLT, bikes) era necessário para demonstrar o valor do projeto. A implementação foi direta dado o padrão já estabelecido.
+
+#### 3. Quarentena implementada no ETL (ausente na Parte 1)
+
+**Plano (Parte 1):** Registros inválidos seriam descartados silenciosamente.
+
+**Executado (Parte 2):** Registros que falham validação são gravados em `quarentena/` (local ou bucket MinIO), com coluna `_motivo_rejeicao`. Isso garante auditabilidade e possibilidade de reprocessamento.
+
+#### 4. dbt com 28 testes (vs. 26 planejados)
+
+Dois testes adicionais foram necessários após identificar valores inesperados no campo `semaforo_otp` (classificação de performance) e `periodo_dia` durante os testes iniciais. Ambos usam `accepted_values`, garantindo integridade referencial dos modelos Gold.
+
+#### 5. Extração do Postgres via Airflow (não via script avulso)
+
+**Plano (Parte 1):** DAG separada para o banco legado.
+
+**Executado (Parte 2):** A extração do Postgres foi integrada como task `batch_postgres` dentro da DAG principal `urbanflow_pipeline`, simplificando a operação e garantindo que dados legados e dados IoT sigam exatamente o mesmo ciclo de transformação.
+
+---
+
+## Critérios de Avaliação — Checklist
+
+| Item | Status | Arquivo |
+|---|---|---|
+| ✅ Ingestão: scripts de extração e carga | Implementado | `ingestao/simulador_*.py` |
+| ✅ Armazenamento: MinIO + PostgreSQL + Docker | Implementado | `docker/docker-compose.yml` |
+| ✅ Transformação: pandas ETL + dbt | Implementado | `ingestao/bronze_to_silver.py` + `dbt_project/` |
+| ✅ Orquestração: Airflow DAG agendada | Implementado | `orchestration/dags/urbanflow_pipeline.py` |
+| ✅ Consumo: API FastAPI com endpoints | Implementado | `serving/main.py` |
+| ✅ Qualidade: 28 testes dbt + quarentena | Implementado | `dbt_project/models/schema.yml` |
+| ✅ Segurança: SHA-256 LGPD + auditoria | Implementado | `simulador_catracas.py` + metadados Silver |
+| ✅ Diagrama As-Built (Mermaid) | Este README | seção "Diagrama de Arquitetura" |
+| ✅ Relatório de Mudanças | Este README | seção "Relatório de Mudanças" |
+| ✅ Instruções de reprodução | Este README | seção "Como Rodar" |
