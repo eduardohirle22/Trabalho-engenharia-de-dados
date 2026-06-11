@@ -1,0 +1,21 @@
+urbanflow:
+  target: dev
+  outputs:
+
+    # ─── Desenvolvimento local (POC sem Docker) ───────────────────────────────
+    dev:
+      type: duckdb
+      path: "{{ env_var('URBANFLOW_GOLD_DIR', '../poc/gold') }}/urbanflow.duckdb"
+      threads: 4
+      extensions:
+        - parquet
+        - json
+
+    # ─── Produção (dentro do Docker com dados do Silver) ─────────────────────
+    prod:
+      type: duckdb
+      path: "{{ env_var('URBANFLOW_GOLD_DIR', '/opt/airflow/data/gold') }}/urbanflow.duckdb"
+      threads: 4
+      extensions:
+        - parquet
+        - json
