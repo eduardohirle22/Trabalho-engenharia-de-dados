@@ -3,172 +3,248 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>UrbanFlow — Avaliação do Trabalho</title>
+<title>UrbanFlow — Ficha de Avaliação</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;padding:32px;max-width:900px;margin:0 auto}
-h1{font-size:22px;font-weight:700;margin-bottom:4px;color:#f7fafc}
-.sub{font-size:14px;color:#718096;margin-bottom:32px}
-.section{background:#1a1f2e;border:1px solid #2d3748;border-radius:12px;padding:24px;margin-bottom:20px}
-.section-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:.5px}
-.badge-main{background:#1e3a5f;color:#60a5fa}
-.badge-bonus{background:#1a3a2a;color:#4ade80}
-.section-title{font-size:15px;font-weight:700;color:#f7fafc}
-.item{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #2d3748}
-.item:last-child{border-bottom:none;padding-bottom:0}
-.check{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
-.check-ok{background:#166534;color:#4ade80;font-size:14px}
-.item-body{flex:1}
-.item-label{font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:3px}
-.item-desc{font-size:13px;color:#718096;line-height:1.5}
-.item-file{display:inline-block;margin-top:5px;font-size:12px;background:#0f1117;border:1px solid #2d3748;border-radius:4px;padding:2px 8px;color:#a0aec0;font-family:monospace}
-.links{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:opacity .2s}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#1e293b;padding:32px;max-width:860px;margin:0 auto}
+@media print{body{padding:16px}.no-print{display:none!important}}
+h1{font-size:20px;font-weight:700;color:#0f172a;margin-bottom:2px}
+.meta{font-size:13px;color:#64748b;margin-bottom:24px}
+.top-links{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;border:none;cursor:pointer;transition:opacity .15s}
 .btn:hover{opacity:.85}
-.btn-blue{background:#1d4ed8;color:#fff}
-.btn-green{background:#15803d;color:#fff}
-.btn-purple{background:#6d28d9;color:#fff}
-.pipeline-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
-.step{background:#0f1117;border:1px solid #2d3748;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center}
-.step-label{color:#718096;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
-.step-name{font-weight:700;color:#f7fafc}
-.arrow{color:#4a5568;font-size:18px}
-.arch{background:#0f1117;border-radius:8px;padding:16px;margin-top:12px;font-family:monospace;font-size:12px;color:#a0aec0;line-height:1.8}
-.arch span{color:#60a5fa}
+.btn-green{background:#16a34a;color:#fff}
+.btn-blue{background:#2563eb;color:#fff}
+.btn-slate{background:#475569;color:#fff}
+.btn-print{background:#0f172a;color:#fff}
+.score-box{background:#0f172a;color:#f8fafc;border-radius:12px;padding:20px 24px;margin-bottom:28px;display:flex;align-items:center;gap:24px}
+.score-num{font-size:52px;font-weight:800;color:#facc15;line-height:1;min-width:80px}
+.score-label{font-size:13px;color:#94a3b8;margin-bottom:4px}
+.score-detail{font-size:13px;color:#cbd5e1}
+.section{background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:16px;overflow:hidden}
+.sec-header{background:#f1f5f9;padding:12px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #e2e8f0}
+.sec-pts{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#1e40af;color:#bfdbfe;letter-spacing:.4px}
+.sec-pts.bonus{background:#14532d;color:#bbf7d0}
+.sec-title{font-weight:700;font-size:14px;color:#0f172a}
+.crit{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start;padding:14px 20px;border-bottom:1px solid #f1f5f9}
+.crit:last-child{border-bottom:none}
+.crit-name{font-size:14px;font-weight:600;color:#0f172a;margin-bottom:4px}
+.crit-desc{font-size:12px;color:#64748b;line-height:1.5;margin-bottom:8px}
+.crit-files{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;font-family:monospace;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;padding:2px 7px;color:#475569;text-decoration:none}
+.tag:hover{background:#e2e8f0}
+.tag.link-tag{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+.scorer{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:90px}
+.scorer-max{font-size:11px;color:#94a3b8;text-align:center}
+.pts-btns{display:flex;gap:4px;flex-wrap:wrap;justify-content:center}
+.pts-btn{width:36px;height:36px;border-radius:6px;border:2px solid #e2e8f0;background:#fff;font-size:11px;font-weight:700;color:#475569;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.pts-btn:hover{border-color:#3b82f6;color:#3b82f6}
+.pts-btn.active{background:#16a34a;border-color:#16a34a;color:#fff}
+.pts-btn.active-partial{background:#f59e0b;border-color:#f59e0b;color:#fff}
+.final{background:#f0fdf4;border:2px solid #16a34a;border-radius:12px;padding:20px 24px;margin-top:8px;display:flex;align-items:center;justify-content:space-between}
+.final-label{font-size:14px;font-weight:700;color:#15803d}
+.final-val{font-size:36px;font-weight:800;color:#15803d}
+.hint{font-size:12px;color:#64748b;margin-top:16px;text-align:center}
 </style>
 </head>
 <body>
-
-<h1>&#x1F4CB; UrbanFlow Mobilidade S.A. — Avaliação do Trabalho</h1>
-<p class="sub">Engenharia de Dados · CEUB · Prazo: 25/06/2026</p>
-
-<div class="links">
-  <a href="dashboard.html" class="btn btn-green">&#x1F4CA; Ver Dashboard Operacional</a>
-  <a href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados" class="btn btn-blue" target="_blank">&#x1F517; Repositório GitHub</a>
-  <a href="pipeline_simples.py" class="btn btn-purple">&#x1F40D; Ver pipeline_simples.py</a>
+<h1>&#x1F4CB; UrbanFlow Mobilidade S.A. &mdash; Ficha de Avalia&ccedil;&atilde;o</h1>
+<p class="meta">Engenharia de Dados &middot; CEUB &middot; Eduardo Hirle &amp; Alice &middot; Prazo: 25/06/2026</p>
+<div class="top-links">
+  <a href="dashboard.html" class="btn btn-green" target="_blank">&#x1F4CA; Dashboard (GitHub Pages)</a>
+  <a href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados" class="btn btn-blue" target="_blank">&#x1F517; Reposit&oacute;rio GitHub</a>
+  <a href="pipeline_simples.py" class="btn btn-slate" target="_blank">&#x1F40D; pipeline_simples.py</a>
+  <button class="btn btn-print no-print" onclick="window.print()">&#x1F5A8; Imprimir / Salvar PDF</button>
 </div>
-
-<div class="section" style="margin-top:24px">
-  <div class="section-header">
-    <span class="badge badge-main">8,0 PONTOS</span>
-    <span class="section-title">Critérios Principais da Pipeline</span>
-  </div>
-  <div class="item">
-    <div class="check check-ok">&#x2713;</div>
-    <div class="item-body">
-      <div class="item-label">Ingestão de dados</div>
-      <div class="item-desc">Simulador gera dados reais de GPS (300 ônibus, 20 linhas), catracas (18 estações VLT) e bikes. Registros em JSON imutável com timestamp UTC. Inclui lógica de outliers (velocidade &gt; 100 km/h → quarentena).</div>
-      <span class="item-file">pipeline_simples.py → ingestao()</span>
-      <span class="item-file">data/bronze/gps/*.json</span>
-      <span class="item-file">data/bronze/catracas/*.json</span>
-    </div>
-  </div>
-  <div class="item">
-    <div class="check check-ok">&#x2713;</div>
-    <div class="item-body">
-      <div class="item-label">Armazenamento — Data Lake Medallion</div>
-      <div class="item-desc">Camada Bronze (JSON raw) → Silver (Parquet Snappy, schema validado) → Gold (DuckDB, tabelas analíticas). Sem Docker: armazenamento local com estrutura padronizada. DuckDB é o engine único.</div>
-      <span class="item-file">data/bronze/</span>
-      <span class="item-file">data/silver/*.parquet</span>
-      <span class="item-file">data/gold/urbanflow.duckdb</span>
-    </div>
-  </div>
-  <div class="item">
-    <div class="check check-ok">&#x2713;</div>
-    <div class="item-body">
-      <div class="item-label">Transformação — Bronze → Silver → Gold</div>
-      <div class="item-desc"><strong>bronze_to_silver():</strong> DuckDB SQL lê JSON, valida schema, descarta outliers para quarentena, grava Parquet Snappy comprimido.<br><strong>silver_to_gold():</strong> Cria tabela kpi_operacional (velocidade média, OTP, semáforo) e agg_demanda (entradas, saídas, receita por estação).</div>
-      <span class="item-file">pipeline_simples.py → bronze_to_silver()</span>
-      <span class="item-file">pipeline_simples.py → silver_to_gold()</span>
-    </div>
-  </div>
-  <div class="item">
-    <div class="check check-ok">&#x2713;</div>
-    <div class="item-body">
-      <div class="item-label">Orquestração — Execução encadeada com controle de dependências</div>
-      <div class="item-desc">Função main() orquestra as etapas em sequência com tratamento de erro e log de tempo. Arquivo orchestration/dags/urbanflow_pipeline.py contém DAG Airflow completo para ambiente produtivo.</div>
-      <span class="item-file">pipeline_simples.py → main()</span>
-      <span class="item-file">orchestration/dags/urbanflow_pipeline.py</span>
-    </div>
-  </div>
-  <div class="item">
-    <div class="check check-ok">&#x2713;</div>
-    <div class="item-body">
-      <div class="item-label">Consumo / Serving — Dashboard + Queries analíticas</div>
-      <div class="item-desc"><strong>serving():</strong> queries SQL diretas no Gold e relatório impresso no terminal.<br><strong>gerar_dashboard():</strong> lê o DuckDB Gold e gera dashboard.html com 4 gráficos interativos (Chart.js), hospedado no GitHub Pages.</div>
-      <span class="item-file">pipeline_simples.py → serving()</span>
-      <span class="item-file">dashboard.html (GitHub Pages)</span>
-      <div style="margin-top:8px"><a href="dashboard.html" style="font-size:12px;color:#60a5fa">→ Abrir Dashboard</a></div>
-    </div>
+<div class="score-box">
+  <div class="score-num" id="totalScore">0.0</div>
+  <div>
+    <div class="score-label">NOTA PARCIAL</div>
+    <div class="score-detail">Crit&eacute;rios principais: <span id="mainScore">0.0</span> / 8.0 &nbsp;|&nbsp; B&ocirc;nus: <span id="bonusScore">0.0</span> / 2.0</div>
+    <div class="score-detail" style="margin-top:4px;font-size:11px;color:#94a3b8">Clique nos bot&otilde;es ao lado de cada crit&eacute;rio para atribuir a nota</div>
   </div>
 </div>
-
 <div class="section">
-  <div class="section-header">
-    <span class="badge badge-bonus">2,0 PONTOS</span>
-    <span class="section-title">Documentação e Arquitetura</span>
+  <div class="sec-header">
+    <span class="sec-pts">8,0 PONTOS</span>
+    <span class="sec-title">Crit&eacute;rios Principais da Pipeline</span>
   </div>
-  <div class="item">
-    <div class="check check-ok">&#x2713;</div>
-    <div class="item-body">
-      <div class="item-label">Diagrama As-Built (Mermaid)</div>
-      <div class="item-desc">Diagrama de arquitetura em Mermaid no README mostrando o fluxo completo da pipeline.</div>
-      <span class="item-file">README.md → seção "Arquitetura"</span>
+  <div class="crit" data-group="main">
+    <div>
+      <div class="crit-name">1. Ingest&atilde;o de dados</div>
+      <div class="crit-desc">Simulador gera dados de GPS (300 &ocirc;nibus, 20 linhas), catracas (18 esta&ccedil;&otilde;es VLT) e bikes em JSON imut&aacute;vel com timestamp UTC. Detecta outliers (velocidade &gt; 100 km/h &rarr; quarentena).</div>
+      <div class="crit-files">
+        <a class="tag link-tag" href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados/blob/main/pipeline_simples.py" target="_blank">&rarr; pipeline_simples.py</a>
+        <span class="tag">ingestao()</span>
+        <span class="tag">data/bronze/gps/*.json</span>
+        <span class="tag">data/bronze/catracas/*.json</span>
+      </div>
+    </div>
+    <div class="scorer">
+      <div class="scorer-max">m&aacute;x 1,6 pts</div>
+      <div class="pts-btns" data-max="1.6">
+        <button class="pts-btn" data-val="0">0</button>
+        <button class="pts-btn" data-val="0.8">0,8</button>
+        <button class="pts-btn" data-val="1.6">1,6</button>
+      </div>
     </div>
   </div>
-  <div class="item">
-    <div class="check check-ok">&#x2713;</div>
-    <div class="item-body">
-      <div class="item-label">README com change log</div>
-      <div class="item-desc">README completo com descrição do projeto, instruções de execução, estrutura de pastas e histórico de mudanças.</div>
-      <span class="item-file">README.md</span>
+  <div class="crit" data-group="main">
+    <div>
+      <div class="crit-name">2. Armazenamento &mdash; Data Lake Medallion</div>
+      <div class="crit-desc">Bronze (JSON raw) &rarr; Silver (Parquet Snappy, schema validado) &rarr; Gold (DuckDB, tabelas anal&iacute;ticas). Estrutura padronizada. DuckDB como engine &uacute;nico &mdash; sem Docker.</div>
+      <div class="crit-files">
+        <a class="tag link-tag" href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados/blob/main/pipeline_simples.py" target="_blank">&rarr; pipeline_simples.py</a>
+        <span class="tag">data/bronze/</span>
+        <span class="tag">data/silver/*.parquet</span>
+        <span class="tag">data/gold/urbanflow.duckdb</span>
+      </div>
+    </div>
+    <div class="scorer">
+      <div class="scorer-max">m&aacute;x 1,6 pts</div>
+      <div class="pts-btns" data-max="1.6">
+        <button class="pts-btn" data-val="0">0</button>
+        <button class="pts-btn" data-val="0.8">0,8</button>
+        <button class="pts-btn" data-val="1.6">1,6</button>
+      </div>
+    </div>
+  </div>
+  <div class="crit" data-group="main">
+    <div>
+      <div class="crit-name">3. Transforma&ccedil;&atilde;o &mdash; Bronze &rarr; Silver &rarr; Gold</div>
+      <div class="crit-desc"><strong>bronze_to_silver():</strong> SQL via DuckDB &mdash; valida schema, remove outliers, grava Parquet Snappy.<br><strong>silver_to_gold():</strong> Cria kpi_operacional (velocidade m&eacute;dia, OTP, sem&aacute;foro) e agg_demanda (entradas, sa&iacute;das, receita).</div>
+      <div class="crit-files">
+        <a class="tag link-tag" href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados/blob/main/pipeline_simples.py" target="_blank">&rarr; pipeline_simples.py</a>
+        <span class="tag">bronze_to_silver()</span>
+        <span class="tag">silver_to_gold()</span>
+      </div>
+    </div>
+    <div class="scorer">
+      <div class="scorer-max">m&aacute;x 1,6 pts</div>
+      <div class="pts-btns" data-max="1.6">
+        <button class="pts-btn" data-val="0">0</button>
+        <button class="pts-btn" data-val="0.8">0,8</button>
+        <button class="pts-btn" data-val="1.6">1,6</button>
+      </div>
+    </div>
+  </div>
+  <div class="crit" data-group="main">
+    <div>
+      <div class="crit-name">4. Orquestra&ccedil;&atilde;o</div>
+      <div class="crit-desc"><strong>main():</strong> orquestra todas as etapas em sequ&ecirc;ncia com tratamento de erros e log de tempo.<br><strong>urbanflow_pipeline.py:</strong> DAG Airflow completo para ambiente produtivo (schedule di&aacute;rio).</div>
+      <div class="crit-files">
+        <a class="tag link-tag" href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados/blob/main/pipeline_simples.py" target="_blank">&rarr; pipeline_simples.py</a>
+        <a class="tag link-tag" href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados/blob/main/orchestration/dags/urbanflow_pipeline.py" target="_blank">&rarr; DAG Airflow</a>
+        <span class="tag">main()</span>
+      </div>
+    </div>
+    <div class="scorer">
+      <div class="scorer-max">m&aacute;x 1,6 pts</div>
+      <div class="pts-btns" data-max="1.6">
+        <button class="pts-btn" data-val="0">0</button>
+        <button class="pts-btn" data-val="0.8">0,8</button>
+        <button class="pts-btn" data-val="1.6">1,6</button>
+      </div>
+    </div>
+  </div>
+  <div class="crit" data-group="main">
+    <div>
+      <div class="crit-name">5. Consumo / Serving</div>
+      <div class="crit-desc"><strong>serving():</strong> queries SQL diretas no Gold com KPIs impressos no terminal.<br><strong>gerar_dashboard():</strong> l&ecirc; DuckDB Gold e gera dashboard com 4 gr&aacute;ficos Chart.js hospedado no GitHub Pages.</div>
+      <div class="crit-files">
+        <a class="tag link-tag" href="dashboard.html" target="_blank">&rarr; Ver Dashboard ao Vivo</a>
+        <a class="tag link-tag" href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados/blob/main/pipeline_simples.py" target="_blank">&rarr; pipeline_simples.py</a>
+        <span class="tag">serving()</span>
+        <span class="tag">gerar_dashboard()</span>
+      </div>
+    </div>
+    <div class="scorer">
+      <div class="scorer-max">m&aacute;x 1,6 pts</div>
+      <div class="pts-btns" data-max="1.6">
+        <button class="pts-btn" data-val="0">0</button>
+        <button class="pts-btn" data-val="0.8">0,8</button>
+        <button class="pts-btn" data-val="1.6">1,6</button>
+      </div>
     </div>
   </div>
 </div>
-
 <div class="section">
-  <div class="section-header">
-    <span class="section-title">Fluxo da Pipeline — Medallion Architecture</span>
+  <div class="sec-header">
+    <span class="sec-pts bonus">2,0 PONTOS</span>
+    <span class="sec-title">Documenta&ccedil;&atilde;o e Arquitetura</span>
   </div>
-  <div class="pipeline-flow">
-    <div class="step"><div class="step-label">Ingestão</div><div class="step-name">Simulador</div><div style="font-size:11px;color:#4a5568;margin-top:2px">GPS · Catracas · Bikes</div></div>
-    <span class="arrow">→</span>
-    <div class="step"><div class="step-label">Bronze</div><div class="step-name">JSON Raw</div><div style="font-size:11px;color:#4a5568;margin-top:2px">Imutável · UTC</div></div>
-    <span class="arrow">→</span>
-    <div class="step"><div class="step-label">Silver</div><div class="step-name">Parquet Snappy</div><div style="font-size:11px;color:#4a5568;margin-top:2px">Schema validado</div></div>
-    <span class="arrow">→</span>
-    <div class="step"><div class="step-label">Gold</div><div class="step-name">DuckDB</div><div style="font-size:11px;color:#4a5568;margin-top:2px">KPIs analíticos</div></div>
-    <span class="arrow">→</span>
-    <div class="step"><div class="step-label">Serving</div><div class="step-name">Dashboard HTML</div><div style="font-size:11px;color:#4a5568;margin-top:2px">GitHub Pages</div></div>
+  <div class="crit" data-group="bonus">
+    <div>
+      <div class="crit-name">6. Diagrama As-Built (Mermaid)</div>
+      <div class="crit-desc">Diagrama de arquitetura em Mermaid no README mostrando o fluxo completo: Ingest&atilde;o &rarr; Bronze &rarr; Silver &rarr; Gold &rarr; Serving, com tecnologias de cada camada.</div>
+      <div class="crit-files">
+        <a class="tag link-tag" href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados/blob/main/README.md" target="_blank">&rarr; README.md (se&ccedil;&atilde;o Arquitetura)</a>
+      </div>
+    </div>
+    <div class="scorer">
+      <div class="scorer-max">m&aacute;x 1,0 pt</div>
+      <div class="pts-btns" data-max="1.0">
+        <button class="pts-btn" data-val="0">0</button>
+        <button class="pts-btn" data-val="0.5">0,5</button>
+        <button class="pts-btn" data-val="1.0">1,0</button>
+      </div>
+    </div>
   </div>
-  <div class="arch">
-<span>pipeline_simples.py</span><br>
-&nbsp;&nbsp;├─ ingestao()        → data/bronze/{gps,catracas,bikes}/*.json<br>
-&nbsp;&nbsp;├─ bronze_to_silver() → data/silver/*.parquet  +  data/quarentena/<br>
-&nbsp;&nbsp;├─ silver_to_gold()   → data/gold/urbanflow.duckdb<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ kpi_operacional (velocidade, OTP, semáforo)<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ agg_demanda (entradas, saídas, receita)<br>
-&nbsp;&nbsp;├─ serving()         → queries SQL + print KPIs<br>
-&nbsp;&nbsp;└─ gerar_dashboard() → dashboard.html (GitHub Pages)
+  <div class="crit" data-group="bonus">
+    <div>
+      <div class="crit-name">7. README com change log</div>
+      <div class="crit-desc">README completo com descri&ccedil;&atilde;o do projeto, instru&ccedil;&otilde;es de execu&ccedil;&atilde;o (1 depend&ecirc;ncia: duckdb), estrutura de pastas e hist&oacute;rico de mudan&ccedil;as.</div>
+      <div class="crit-files">
+        <a class="tag link-tag" href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados/blob/main/README.md" target="_blank">&rarr; README.md</a>
+      </div>
+    </div>
+    <div class="scorer">
+      <div class="scorer-max">m&aacute;x 1,0 pt</div>
+      <div class="pts-btns" data-max="1.0">
+        <button class="pts-btn" data-val="0">0</button>
+        <button class="pts-btn" data-val="0.5">0,5</button>
+        <button class="pts-btn" data-val="1.0">1,0</button>
+      </div>
+    </div>
   </div>
 </div>
-
-<div class="section">
-  <div class="section-header">
-    <span class="section-title">Como Executar</span>
+<div class="final">
+  <div>
+    <div class="final-label">NOTA FINAL</div>
+    <div style="font-size:12px;color:#166534;margin-top:2px">soma dos crit&eacute;rios acima</div>
   </div>
-  <div class="arch">
-<span style="color:#4ade80"># 1. Instalar dependência única</span><br>
-pip install duckdb<br>
-<br>
-<span style="color:#4ade80"># 2. Executar a pipeline completa</span><br>
-python pipeline_simples.py<br>
-<br>
-<span style="color:#4ade80"># 3. Abrir dashboard gerado</span><br>
-start dashboard.html
-  </div>
+  <div class="final-val" id="finalScore">0.0 / 10.0</div>
 </div>
-
+<p class="hint no-print">&#x1F4A1; Use "Imprimir / Salvar PDF" para guardar a ficha preenchida.</p>
+<script>
+const groups = document.querySelectorAll('.pts-btns');
+const vals = {};
+groups.forEach((g, i) => {
+  vals[i] = 0;
+  g.querySelectorAll('.pts-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = parseFloat(btn.dataset.val);
+      vals[i] = v;
+      g.querySelectorAll('.pts-btn').forEach(b => b.classList.remove('active','active-partial'));
+      if (v > 0) btn.classList.add(v === parseFloat(g.dataset.max) ? 'active' : 'active-partial');
+      calc();
+    });
+  });
+});
+function calc() {
+  let main = 0, bonus = 0, idx = 0;
+  document.querySelectorAll('.crit').forEach(row => {
+    const v = vals[idx++] || 0;
+    if (row.dataset.group === 'main') main += v; else bonus += v;
+  });
+  const t = main + bonus;
+  document.getElementById('mainScore').textContent = main.toFixed(1);
+  document.getElementById('bonusScore').textContent = bonus.toFixed(1);
+  const el = document.getElementById('totalScore');
+  el.textContent = t.toFixed(1);
+  el.style.color = t >= 7 ? '#4ade80' : t >= 5 ? '#facc15' : '#f87171';
+  document.getElementById('finalScore').textContent = t.toFixed(1) + ' / 10.0';
+}
+</script>
 </body>
 </html>
