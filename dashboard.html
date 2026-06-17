@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UrbanFlow &mdash; Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;padding:24px;min-height:100vh}
+h1{font-size:20px;font-weight:600;margin-bottom:4px}
+.sub{font-size:13px;color:#718096;margin-bottom:24px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.card{background:#1a1f2e;border:1px solid #2d3748;border-radius:10px;padding:16px 20px}
+.cl{font-size:12px;color:#718096;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.cv{font-size:28px;font-weight:700;color:#f7fafc}
+.cu{font-size:12px;color:#4a5568;margin-top:2px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.pn{background:#1a1f2e;border:1px solid #2d3748;border-radius:10px;padding:20px}
+.pt{font-size:13px;font-weight:600;color:#a0aec0;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px}
+.leg{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:#718096}
+.dot{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:middle}
+.sr{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.sb{flex:1;background:#2d3748;border-radius:4px;height:8px;overflow:hidden}
+.sbi{height:100%;border-radius:4px}
+.sl{font-size:13px;color:#a0aec0;width:90px}
+.sc{font-size:14px;font-weight:600;width:70px;text-align:right}
+canvas{max-height:260px}
+</style>
+</head>
+<body>
+<h1>&#x1F68C; UrbanFlow &mdash; Mobilidade S.A.</h1>
+<p class="sub">Dashboard operacional &middot; Gerado em 17/06/2026 19:42 por pipeline_simples.py</p>
+<div class="cards">
+  <div class="card"><div class="cl">Linhas ativas</div><div class="cv">20</div><div class="cu">rotas monitoradas</div></div>
+  <div class="card"><div class="cl">Veículos</div><div class="cv">300</div><div class="cu">ônibus rastreados</div></div>
+  <div class="card"><div class="cl">Velocidade média</div><div class="cv">36.5</div><div class="cu">km/h na frota</div></div>
+  <div class="card"><div class="cl">Ocupação média</div><div class="cv">50.9%</div><div class="cu">capacidade utilizada</div></div>
+</div>
+<div class="g2">
+  <div class="pn"><div class="pt">Semáforo OTP por linha</div>
+    <div class="leg">
+      <span><span class="dot" style="background:#22c55e"></span>Verde ≥90%</span>
+      <span><span class="dot" style="background:#eab308"></span>Amarelo ≥70%</span>
+      <span><span class="dot" style="background:#ef4444"></span>Vermelho &lt;70%</span>
+    </div>
+    <canvas id="cOTP"></canvas>
+  </div>
+  <div class="pn"><div class="pt">Demanda VLT &mdash; Entradas / Saídas</div>
+    <div class="leg">
+      <span><span class="dot" style="background:#3b82f6"></span>Entradas</span>
+      <span><span class="dot" style="background:#10b981"></span>Saídas</span>
+    </div>
+    <canvas id="cDem"></canvas>
+  </div>
+</div>
+<div class="g2">
+  <div class="pn"><div class="pt">Distribuição do semáforo OTP</div>
+    <div style="margin-top:8px">
+      <div class="sr"><div class="sl">Verde</div><div class="sb"><div class="sbi" style="width:0%;background:#22c55e"></div></div><div class="sc" style="color:#22c55e">0 linhas</div></div>
+      <div class="sr"><div class="sl">Amarelo</div><div class="sb"><div class="sbi" style="width:65%;background:#eab308"></div></div><div class="sc" style="color:#eab308">13 linhas</div></div>
+      <div class="sr"><div class="sl">Vermelho</div><div class="sb"><div class="sbi" style="width:35%;background:#ef4444"></div></div><div class="sc" style="color:#ef4444">7 linhas</div></div>
+    </div>
+  </div>
+  <div class="pn"><div class="pt">Receita por estação VLT (R$)</div>
+    <canvas id="cRec"></canvas>
+  </div>
+</div>
+<script>
+const kpi=[{'l': 'L013', 'spd': 37.1, 'occ': 59.0, 'otp': 86.7, 'sem': 'AMARELO'}, {'l': 'L005', 'spd': 32.8, 'occ': 42.7, 'otp': 86.7, 'sem': 'AMARELO'}, {'l': 'L006', 'spd': 35.6, 'occ': 38.4, 'otp': 86.7, 'sem': 'AMARELO'}, {'l': 'L009', 'spd': 33.6, 'occ': 54.5, 'otp': 86.7, 'sem': 'AMARELO'}, {'l': 'L017', 'spd': 34.5, 'occ': 43.0, 'otp': 80.0, 'sem': 'AMARELO'}, {'l': 'L003', 'spd': 37.4, 'occ': 53.7, 'otp': 80.0, 'sem': 'AMARELO'}, {'l': 'L007', 'spd': 36.9, 'occ': 58.1, 'otp': 80.0, 'sem': 'AMARELO'}, {'l': 'L019', 'spd': 38.8, 'occ': 41.6, 'otp': 80.0, 'sem': 'AMARELO'}, {'l': 'L002', 'spd': 37.4, 'occ': 44.7, 'otp': 73.3, 'sem': 'AMARELO'}, {'l': 'L011', 'spd': 31.9, 'occ': 52.9, 'otp': 73.3, 'sem': 'AMARELO'}, {'l': 'L015', 'spd': 29.6, 'occ': 56.7, 'otp': 73.3, 'sem': 'AMARELO'}, {'l': 'L020', 'spd': 42.5, 'occ': 44.7, 'otp': 73.3, 'sem': 'AMARELO'}, {'l': 'L014', 'spd': 44.4, 'occ': 60.7, 'otp': 71.4, 'sem': 'AMARELO'}, {'l': 'L012', 'spd': 38.1, 'occ': 44.0, 'otp': 66.7, 'sem': 'VERMELHO'}, {'l': 'L018', 'spd': 34.8, 'occ': 49.9, 'otp': 66.7, 'sem': 'VERMELHO'}, {'l': 'L016', 'spd': 33.5, 'occ': 62.6, 'otp': 66.7, 'sem': 'VERMELHO'}, {'l': 'L008', 'spd': 34.5, 'occ': 59.4, 'otp': 66.7, 'sem': 'VERMELHO'}, {'l': 'L001', 'spd': 43.3, 'occ': 46.3, 'otp': 60.0, 'sem': 'VERMELHO'}, {'l': 'L010', 'spd': 36.0, 'occ': 60.5, 'otp': 60.0, 'sem': 'VERMELHO'}, {'l': 'L004', 'spd': 36.8, 'occ': 43.8, 'otp': 60.0, 'sem': 'VERMELHO'}];
+const dem=[{'s': 'EST-10', 'e': 7, 'x': 7, 'r': 32.5}, {'s': 'EST-08', 'e': 6, 'x': 2, 'r': 20.0}, {'s': 'EST-01', 'e': 5, 'x': 3, 'r': 20.0}, {'s': 'EST-09', 'e': 5, 'x': 8, 'r': 32.5}, {'s': 'EST-13', 'e': 5, 'x': 2, 'r': 17.5}, {'s': 'EST-06', 'e': 5, 'x': 3, 'r': 15.0}, {'s': 'EST-18', 'e': 5, 'x': 7, 'r': 25.0}, {'s': 'EST-17', 'e': 4, 'x': 5, 'r': 25.0}, {'s': 'EST-07', 'e': 4, 'x': 5, 'r': 25.0}, {'s': 'EST-15', 'e': 4, 'x': 3, 'r': 20.0}, {'s': 'EST-14', 'e': 3, 'x': 7, 'r': 22.5}, {'s': 'EST-12', 'e': 2, 'x': 3, 'r': 7.5}, {'s': 'EST-05', 'e': 2, 'x': 5, 'r': 27.5}, {'s': 'EST-11', 'e': 2, 'x': 3, 'r': 10.0}, {'s': 'EST-16', 'e': 2, 'x': 5, 'r': 7.5}, {'s': 'EST-04', 'e': 1, 'x': 9, 'r': 32.5}, {'s': 'EST-03', 'e': 1, 'x': 6, 'r': 20.0}, {'s': 'EST-02', 'e': 1, 'x': 3, 'r': 10.0}];
+const C=s=>s==='VERDE'?'#22c55e':s==='AMARELO'?'#eab308':'#ef4444';
+const mk=(id,type,labels,datasets,yFmt)=>new Chart(document.getElementById(id),{type,data:{labels,datasets},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#718096',font:{size:10},maxRotation:45}},y:{ticks:{callback:yFmt,color:'#718096'},grid:{color:'rgba(255,255,255,0.05)'}}}}}
+});
+mk('cOTP','bar',kpi.map(r=>r.l),[{label:'OTP%',data:kpi.map(r=>r.otp),backgroundColor:kpi.map(r=>C(r.sem)),borderRadius:3,borderSkipped:false}],v=>v+'%');
+mk('cDem','bar',dem.map(r=>r.s),[{label:'Entradas',data:dem.map(r=>r.e),backgroundColor:'#3b82f6',borderRadius:3,borderSkipped:false},{label:'Saídas',data:dem.map(r=>r.x),backgroundColor:'#10b981',borderRadius:3,borderSkipped:false}],v=>v);
+mk('cRec','bar',dem.map(r=>r.s),[{label:'R$',data:dem.map(r=>r.r),backgroundColor:'#8b5cf6',borderRadius:3,borderSkipped:false}],v=>'R$'+v);
+</script>
+</body>
+</html>
