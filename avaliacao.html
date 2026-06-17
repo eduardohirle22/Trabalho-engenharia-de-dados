@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UrbanFlow — Avaliação do Trabalho</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;padding:32px;max-width:900px;margin:0 auto}
+h1{font-size:22px;font-weight:700;margin-bottom:4px;color:#f7fafc}
+.sub{font-size:14px;color:#718096;margin-bottom:32px}
+.section{background:#1a1f2e;border:1px solid #2d3748;border-radius:12px;padding:24px;margin-bottom:20px}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:.5px}
+.badge-main{background:#1e3a5f;color:#60a5fa}
+.badge-bonus{background:#1a3a2a;color:#4ade80}
+.section-title{font-size:15px;font-weight:700;color:#f7fafc}
+.item{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #2d3748}
+.item:last-child{border-bottom:none;padding-bottom:0}
+.check{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.check-ok{background:#166534;color:#4ade80;font-size:14px}
+.item-body{flex:1}
+.item-label{font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:3px}
+.item-desc{font-size:13px;color:#718096;line-height:1.5}
+.item-file{display:inline-block;margin-top:5px;font-size:12px;background:#0f1117;border:1px solid #2d3748;border-radius:4px;padding:2px 8px;color:#a0aec0;font-family:monospace}
+.links{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:opacity .2s}
+.btn:hover{opacity:.85}
+.btn-blue{background:#1d4ed8;color:#fff}
+.btn-green{background:#15803d;color:#fff}
+.btn-purple{background:#6d28d9;color:#fff}
+.pipeline-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
+.step{background:#0f1117;border:1px solid #2d3748;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center}
+.step-label{color:#718096;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+.step-name{font-weight:700;color:#f7fafc}
+.arrow{color:#4a5568;font-size:18px}
+.arch{background:#0f1117;border-radius:8px;padding:16px;margin-top:12px;font-family:monospace;font-size:12px;color:#a0aec0;line-height:1.8}
+.arch span{color:#60a5fa}
+</style>
+</head>
+<body>
+
+<h1>&#x1F4CB; UrbanFlow Mobilidade S.A. — Avaliação do Trabalho</h1>
+<p class="sub">Engenharia de Dados · CEUB · Prazo: 25/06/2026</p>
+
+<div class="links">
+  <a href="dashboard.html" class="btn btn-green">&#x1F4CA; Ver Dashboard Operacional</a>
+  <a href="https://github.com/eduardohirle22/Trabalho-engenharia-de-dados" class="btn btn-blue" target="_blank">&#x1F517; Repositório GitHub</a>
+  <a href="pipeline_simples.py" class="btn btn-purple">&#x1F40D; Ver pipeline_simples.py</a>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <div class="section-header">
+    <span class="badge badge-main">8,0 PONTOS</span>
+    <span class="section-title">Critérios Principais da Pipeline</span>
+  </div>
+  <div class="item">
+    <div class="check check-ok">&#x2713;</div>
+    <div class="item-body">
+      <div class="item-label">Ingestão de dados</div>
+      <div class="item-desc">Simulador gera dados reais de GPS (300 ônibus, 20 linhas), catracas (18 estações VLT) e bikes. Registros em JSON imutável com timestamp UTC. Inclui lógica de outliers (velocidade &gt; 100 km/h → quarentena).</div>
+      <span class="item-file">pipeline_simples.py → ingestao()</span>
+      <span class="item-file">data/bronze/gps/*.json</span>
+      <span class="item-file">data/bronze/catracas/*.json</span>
+    </div>
+  </div>
+  <div class="item">
+    <div class="check check-ok">&#x2713;</div>
+    <div class="item-body">
+      <div class="item-label">Armazenamento — Data Lake Medallion</div>
+      <div class="item-desc">Camada Bronze (JSON raw) → Silver (Parquet Snappy, schema validado) → Gold (DuckDB, tabelas analíticas). Sem Docker: armazenamento local com estrutura padronizada. DuckDB é o engine único.</div>
+      <span class="item-file">data/bronze/</span>
+      <span class="item-file">data/silver/*.parquet</span>
+      <span class="item-file">data/gold/urbanflow.duckdb</span>
+    </div>
+  </div>
+  <div class="item">
+    <div class="check check-ok">&#x2713;</div>
+    <div class="item-body">
+      <div class="item-label">Transformação — Bronze → Silver → Gold</div>
+      <div class="item-desc"><strong>bronze_to_silver():</strong> DuckDB SQL lê JSON, valida schema, descarta outliers para quarentena, grava Parquet Snappy comprimido.<br><strong>silver_to_gold():</strong> Cria tabela kpi_operacional (velocidade média, OTP, semáforo) e agg_demanda (entradas, saídas, receita por estação).</div>
+      <span class="item-file">pipeline_simples.py → bronze_to_silver()</span>
+      <span class="item-file">pipeline_simples.py → silver_to_gold()</span>
+    </div>
+  </div>
+  <div class="item">
+    <div class="check check-ok">&#x2713;</div>
+    <div class="item-body">
+      <div class="item-label">Orquestração — Execução encadeada com controle de dependências</div>
+      <div class="item-desc">Função main() orquestra as etapas em sequência com tratamento de erro e log de tempo. Arquivo orchestration/dags/urbanflow_pipeline.py contém DAG Airflow completo para ambiente produtivo.</div>
+      <span class="item-file">pipeline_simples.py → main()</span>
+      <span class="item-file">orchestration/dags/urbanflow_pipeline.py</span>
+    </div>
+  </div>
+  <div class="item">
+    <div class="check check-ok">&#x2713;</div>
+    <div class="item-body">
+      <div class="item-label">Consumo / Serving — Dashboard + Queries analíticas</div>
+      <div class="item-desc"><strong>serving():</strong> queries SQL diretas no Gold e relatório impresso no terminal.<br><strong>gerar_dashboard():</strong> lê o DuckDB Gold e gera dashboard.html com 4 gráficos interativos (Chart.js), hospedado no GitHub Pages.</div>
+      <span class="item-file">pipeline_simples.py → serving()</span>
+      <span class="item-file">dashboard.html (GitHub Pages)</span>
+      <div style="margin-top:8px"><a href="dashboard.html" style="font-size:12px;color:#60a5fa">→ Abrir Dashboard</a></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="badge badge-bonus">2,0 PONTOS</span>
+    <span class="section-title">Documentação e Arquitetura</span>
+  </div>
+  <div class="item">
+    <div class="check check-ok">&#x2713;</div>
+    <div class="item-body">
+      <div class="item-label">Diagrama As-Built (Mermaid)</div>
+      <div class="item-desc">Diagrama de arquitetura em Mermaid no README mostrando o fluxo completo da pipeline.</div>
+      <span class="item-file">README.md → seção "Arquitetura"</span>
+    </div>
+  </div>
+  <div class="item">
+    <div class="check check-ok">&#x2713;</div>
+    <div class="item-body">
+      <div class="item-label">README com change log</div>
+      <div class="item-desc">README completo com descrição do projeto, instruções de execução, estrutura de pastas e histórico de mudanças.</div>
+      <span class="item-file">README.md</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Fluxo da Pipeline — Medallion Architecture</span>
+  </div>
+  <div class="pipeline-flow">
+    <div class="step"><div class="step-label">Ingestão</div><div class="step-name">Simulador</div><div style="font-size:11px;color:#4a5568;margin-top:2px">GPS · Catracas · Bikes</div></div>
+    <span class="arrow">→</span>
+    <div class="step"><div class="step-label">Bronze</div><div class="step-name">JSON Raw</div><div style="font-size:11px;color:#4a5568;margin-top:2px">Imutável · UTC</div></div>
+    <span class="arrow">→</span>
+    <div class="step"><div class="step-label">Silver</div><div class="step-name">Parquet Snappy</div><div style="font-size:11px;color:#4a5568;margin-top:2px">Schema validado</div></div>
+    <span class="arrow">→</span>
+    <div class="step"><div class="step-label">Gold</div><div class="step-name">DuckDB</div><div style="font-size:11px;color:#4a5568;margin-top:2px">KPIs analíticos</div></div>
+    <span class="arrow">→</span>
+    <div class="step"><div class="step-label">Serving</div><div class="step-name">Dashboard HTML</div><div style="font-size:11px;color:#4a5568;margin-top:2px">GitHub Pages</div></div>
+  </div>
+  <div class="arch">
+<span>pipeline_simples.py</span><br>
+&nbsp;&nbsp;├─ ingestao()        → data/bronze/{gps,catracas,bikes}/*.json<br>
+&nbsp;&nbsp;├─ bronze_to_silver() → data/silver/*.parquet  +  data/quarentena/<br>
+&nbsp;&nbsp;├─ silver_to_gold()   → data/gold/urbanflow.duckdb<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ kpi_operacional (velocidade, OTP, semáforo)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ agg_demanda (entradas, saídas, receita)<br>
+&nbsp;&nbsp;├─ serving()         → queries SQL + print KPIs<br>
+&nbsp;&nbsp;└─ gerar_dashboard() → dashboard.html (GitHub Pages)
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Como Executar</span>
+  </div>
+  <div class="arch">
+<span style="color:#4ade80"># 1. Instalar dependência única</span><br>
+pip install duckdb<br>
+<br>
+<span style="color:#4ade80"># 2. Executar a pipeline completa</span><br>
+python pipeline_simples.py<br>
+<br>
+<span style="color:#4ade80"># 3. Abrir dashboard gerado</span><br>
+start dashboard.html
+  </div>
+</div>
+
+</body>
+</html>
