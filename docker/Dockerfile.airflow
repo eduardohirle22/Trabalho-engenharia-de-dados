@@ -1,0 +1,2 @@
+FROM apache/airflow:2.9.1
+RUN pip install --no-cache-dir dbt-duckdb==1.8.1
