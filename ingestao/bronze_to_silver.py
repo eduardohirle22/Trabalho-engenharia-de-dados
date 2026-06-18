@@ -204,7 +204,7 @@ def processar_gps(bronze_dir: Path = None, silver_dir: Path = None,
         key = f"gps_onibus_clean/data={data_str}/part-00000.snappy.parquet"
         _escrever_parquet_minio(df, key)
         log.info(f"  ✅ {pipeline.escritas} registros → s3://urbanflow-silver/{key}")
-    else:
+    if silver_dir is not None:
         saida = silver_dir / "gps_onibus_clean" / f"data={data_str}"
         saida.mkdir(parents=True, exist_ok=True)
         df.to_parquet(saida / "part-00000.snappy.parquet",
@@ -266,7 +266,7 @@ def processar_catracas(bronze_dir: Path = None, silver_dir: Path = None,
         key = f"catracas_clean/data={data_str}/part-00000.snappy.parquet"
         _escrever_parquet_minio(df, key)
         log.info(f"  ✅ {pipeline.escritas} registros catracas → MinIO Silver")
-    else:
+    if silver_dir is not None:
         saida = silver_dir / "catracas_clean" / f"data={data_str}"
         saida.mkdir(parents=True, exist_ok=True)
         df.to_parquet(saida / "part-00000.snappy.parquet",
@@ -310,7 +310,7 @@ def processar_bikes(bronze_dir: Path = None, silver_dir: Path = None,
     if source == "minio":
         key = f"bikes_clean/data={data_str}/part-00000.snappy.parquet"
         _escrever_parquet_minio(df, key)
-    else:
+    if silver_dir is not None:
         saida = silver_dir / "bikes_clean" / f"data={data_str}"
         saida.mkdir(parents=True, exist_ok=True)
         df.to_parquet(saida / "part-00000.snappy.parquet",
