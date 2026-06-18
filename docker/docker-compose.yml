@@ -54,7 +54,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ../ingestao/init_postgres.sql:/docker-entrypoint-initdb.d/01_init_legado.sql
-      - ./init_multi_db.sh:/docker-entrypoint-initdb.d/00_init_multi.sh
+      - ./init_multi_db.sql:/docker-entrypoint-initdb.d/00_init_multi.sql
     ports:
       - "5432:5432"
     healthcheck:
