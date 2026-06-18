@@ -113,6 +113,8 @@ services:
     command:
       - -c
       - |
+        mkdir -p /opt/airflow/data/bronze /opt/airflow/data/silver /opt/airflow/data/gold
+        chmod -R 777 /opt/airflow/data
         airflow db migrate
         airflow users create \
           --username admin \
