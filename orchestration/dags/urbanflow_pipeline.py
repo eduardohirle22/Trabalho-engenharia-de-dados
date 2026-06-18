@@ -207,7 +207,7 @@ def task_bronze_to_silver(**context):
         (processar_bikes, "bikes"),
     ]:
         try:
-            pipeline_log = fn(bronze_dir=bronze, silver_dir=silver, source="local")
+            pipeline_log = fn(bronze_dir=bronze, silver_dir=silver, source="minio")
             metricas[nome] = {
                 "lidas": pipeline_log.lidas,
                 "escritas": pipeline_log.escritas,
