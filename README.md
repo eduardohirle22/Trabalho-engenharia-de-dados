@@ -93,7 +93,7 @@ flowchart LR
 
 | Camada | Tecnologia | Função |
 |---|---|---|
-| **Ingestão — eventos** | Python + scripts locais | 3 simuladores: GPS (850 veículos), catracas (18 estações), bikes (30 estações) |
+| **Ingestão — eventos** | Python + scripts locais | 3 simuladores: GPS (300/ciclo · pool 850 via --veiculos), catracas (18 estações), bikes (30 estações) |
 | **Ingestão — batch** | Apache Airflow 2.9 | DAG `urbanflow_pipeline`: 6 tasks, `@hourly`, extração do Postgres legado |
 | **Armazenamento** | MinIO (S3-compatível) | 4 buckets: bronze, silver, gold, quarentena |
 | **Banco legado** | PostgreSQL 15 | 5.000 viagens sintéticas (30 dias), bilhetagem por estação |
@@ -169,7 +169,7 @@ urbanflow-dataeng/
 ├── poc_demo.py                       ← Pipeline ponta a ponta (1 comando)
 │
 ├── ingestao/
-│   ├── simulador_gps.py              ← 850 veículos, MinIO ou local
+│   ├── simulador_gps.py              ← 300/ciclo (pool 850 via --veiculos), MinIO ou local
 │   ├── simulador_catracas.py         ← 18 estações VLT, LGPD (SHA-256)
 │   ├── simulador_bikes.py            ← 30 estações de bikes
 │   ├── bronze_to_silver.py           ← ETL pandas + quarentena
