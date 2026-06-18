@@ -105,16 +105,33 @@ services:
       "
     restart: "no"
 
+  # ─── Airflow Permissions ────────────────────────────────────────────────────
+  # Cria diretorios data/ como root antes do airflow-init
+  airflow-permissions:
+    image: alpine:latest
+    container_name: urbanflow-airflow-perm
+    user: "0"
+    volumes:
+      - airflow-data:/opt/airflow/data
+    command: >
+      /bin/sh -c "
+        mkdir -p /opt/airflow/data/bronze /opt/airflow/data/silver /opt/airflow/data/gold &&
+        chmod -R 777 /opt/airflow/data &&
+        echo 'Permissoes OK'
+      "
+    restart: "no"
+
   # ─── Airflow Init ───────────────────────────────────────────────────────────
   airflow-init:
     <<: *airflow-common
     container_name: urbanflow-airflow-init
+    depends_on:
+      airflow-permissions:
+        condition: service_completed_successfully
     entrypoint: /bin/bash
     command:
       - -c
       - |
-        mkdir -p /opt/airflow/data/bronze /opt/airflow/data/silver /opt/airflow/data/gold
-        chmod -R 777 /opt/airflow/data
         airflow db migrate
         airflow users create \
           --username admin \
