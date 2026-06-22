@@ -89,9 +89,9 @@ def bronze_to_silver():
 
     db = duckdb.connect()
 
-    # GPS — aliases explícitos para evitar nomes de coluna com cast
+    # GPS — aliases explícitos para preservar nomes de coluna no Parquet
     db.execute(f"""
-        COPY (
+  2     COPY (
             SELECT DISTINCT
                 vehicle_id   AS vehicle_id,
                 line_id      AS line_id,
@@ -289,20 +289,29 @@ def gerar_dashboard(path):
                   for r in kpi_rows])
     dem_js = str([{"s":r[0],"e":int(r[1]),"x":int(r[2]),"r":float(r[3])}
                   for r in dem_rows])
-    ts = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ts     = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ts_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    n_linhas   = len(kpi_rows)
+    n_estacoes = len(dem_rows)
 
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>UrbanFlow &mdash; Dashboard</title>
+<title>UrbanFlow — Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;padding:24px;min-height:100vh}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      background:#0f1117;color:#e2e8f0;padding:24px;min-height:100vh}}
 h1{{font-size:20px;font-weight:600;margin-bottom:4px}}
-.sub{{font-size:13px;color:#718096;margin-bottom:24px}}
+.sub{{font-size:13px;color:#718096;margin-bottom:12px}}
+.banner{{border-radius:8px;padding:10px 14px;margin-bottom:8px;font-size:12px;
+         display:flex;align-items:center;gap:8px;line-height:1.4}}
+.bok{{background:#0d2a1a;border:1px solid #166534;color:#86efac}}
+.bwarn{{background:#2a1a08;border:1px solid #92400e;color:#fcd34d;display:none}}
+.binfo{{background:#0d1a2a;border:1px solid #1e3a5f;color:#93c5fd;margin-bottom:20px}}
 .cards{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}}
 .card{{background:#1a1f2e;border:1px solid #2d3748;border-radius:10px;padding:16px 20px}}
 .cl{{font-size:12px;color:#718096;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}}
@@ -310,7 +319,8 @@ h1{{font-size:20px;font-weight:600;margin-bottom:4px}}
 .cu{{font-size:12px;color:#4a5568;margin-top:2px}}
 .g2{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
 .pn{{background:#1a1f2e;border:1px solid #2d3748;border-radius:10px;padding:20px}}
-.pt{{font-size:13px;font-weight:600;color:#a0aec0;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px}}
+.pt{{font-size:13px;font-weight:600;color:#a0aec0;margin-bottom:16px;
+     text-transform:uppercase;letter-spacing:.5px}}
 .leg{{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:#718096}}
 .dot{{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:middle}}
 .sr{{display:flex;align-items:center;gap:10px;margin-bottom:12px}}
@@ -322,8 +332,22 @@ canvas{{max-height:260px}}
 </style>
 </head>
 <body>
-<h1>&#x1F68C; UrbanFlow &mdash; Mobilidade S.A.</h1>
-<p class="sub">Dashboard operacional &middot; Gerado em {ts} por pipeline_simples.py</p>
+<h1>\U0001f68c UrbanFlow — Mobilidade S.A.</h1>
+<p class="sub">Dashboard operacional · Gerado em {ts} por pipeline_simples.py</p>
+<div class="banner bok">
+  ✅ <strong>Pipeline executado com sucesso</strong> &nbsp;·&nbsp;
+  {n_linhas} linhas GPS &nbsp;·&nbsp; {n_estacoes} estações VLT &nbsp;·&nbsp;
+  DuckDB carregado &nbsp;·&nbsp; Bronze → Silver → Gold OK
+</div>
+<div class="banner bwarn" id="bwarn">
+  ⚠️ <strong>Dados desatualizados</strong> — gerado há mais de 24h.
+  Execute <code>python pipeline_simples.py</code> para atualizar.
+</div>
+<div class="banner binfo">
+  ℹ️ Dados gerados offline (sem Docker). &nbsp;·&nbsp;
+  Monitoramento live com Airflow: <strong>http://localhost:8080</strong> &nbsp;·&nbsp;
+  Healthcheck DAG: <em>urbanflow_healthcheck</em> (a cada 5 min)
+</div>
 <div class="cards">
   <div class="card"><div class="cl">Linhas ativas</div><div class="cv">{resumo[0]}</div><div class="cu">rotas monitoradas</div></div>
   <div class="card"><div class="cl">Veículos</div><div class="cv">{resumo[1]}</div><div class="cu">ônibus rastreados</div></div>
@@ -331,7 +355,8 @@ canvas{{max-height:260px}}
   <div class="card"><div class="cl">Ocupação média</div><div class="cv">{resumo[3]}%</div><div class="cu">capacidade utilizada</div></div>
 </div>
 <div class="g2">
-  <div class="pn"><div class="pt">Semáforo OTP por linha</div>
+  <div class="pn">
+    <div class="pt">Semáforo OTP por linha</div>
     <div class="leg">
       <span><span class="dot" style="background:#22c55e"></span>Verde ≥90%</span>
       <span><span class="dot" style="background:#eab308"></span>Amarelo ≥70%</span>
@@ -339,7 +364,8 @@ canvas{{max-height:260px}}
     </div>
     <canvas id="cOTP"></canvas>
   </div>
-  <div class="pn"><div class="pt">Demanda VLT &mdash; Entradas / Saídas</div>
+  <div class="pn">
+    <div class="pt">Demanda VLT — Entradas / Saídas</div>
     <div class="leg">
       <span><span class="dot" style="background:#3b82f6"></span>Entradas</span>
       <span><span class="dot" style="background:#10b981"></span>Saídas</span>
@@ -348,14 +374,16 @@ canvas{{max-height:260px}}
   </div>
 </div>
 <div class="g2">
-  <div class="pn"><div class="pt">Distribuição do semáforo OTP</div>
+  <div class="pn">
+    <div class="pt">Distribuição do semáforo OTP</div>
     <div style="margin-top:8px">
       <div class="sr"><div class="sl">Verde</div><div class="sb"><div class="sbi" style="width:{verde*100//total}%;background:#22c55e"></div></div><div class="sc" style="color:#22c55e">{verde} linhas</div></div>
       <div class="sr"><div class="sl">Amarelo</div><div class="sb"><div class="sbi" style="width:{amarelo*100//total}%;background:#eab308"></div></div><div class="sc" style="color:#eab308">{amarelo} linhas</div></div>
       <div class="sr"><div class="sl">Vermelho</div><div class="sb"><div class="sbi" style="width:{verm*100//total}%;background:#ef4444"></div></div><div class="sc" style="color:#ef4444">{verm} linhas</div></div>
     </div>
   </div>
-  <div class="pn"><div class="pt">Receita por estação VLT (R$)</div>
+  <div class="pn">
+    <div class="pt">Receita por estação VLT (R$)</div>
     <canvas id="cRec"></canvas>
   </div>
 </div>
@@ -363,18 +391,41 @@ canvas{{max-height:260px}}
 const kpi={kpi_js};
 const dem={dem_js};
 const C=s=>s==='VERDE'?'#22c55e':s==='AMARELO'?'#eab308':'#ef4444';
-const mk=(id,type,labels,datasets,yFmt)=>new Chart(document.getElementById(id),{{type,data:{{labels,datasets}},options:{{responsive:true,maintainAspectRatio:true,plugins:{{legend:{{display:false}}}},scales:{{x:{{ticks:{{color:'#718096',font:{{size:10}},maxRotation:45}}}},y:{{ticks:{{callback:yFmt,color:'#718096'}},grid:{{color:'rgba(255,255,255,0.05)'}}}}}}}}}}
+const mk=(id,type,labels,datasets,yFmt)=>new Chart(document.getElementById(id),{{
+  type,data:{{labels,datasets}},
+  options:{{responsive:true,maintainAspectRatio:true,
+    plugins:{{legend:{{display:false}}}},
+    scales:{{x:{{ticks:{{color:'#718096',font:{{size:10}},maxRotation:45}}}},
+             y:{{ticks:{{callback:yFmt,color:'#718096'}},grid:{{color:'rgba(255,255,255,0.05)'}}}}}}}}
 }});
-mk('cOTP','bar',kpi.map(r=>r.l),[{{label:'OTP%',data:kpi.map(r=>r.otp),backgroundColor:kpi.map(r=>C(r.sem)),borderRadius:3,borderSkipped:false}}],v=>v+'%');
-mk('cDem','bar',dem.map(r=>r.s),[{{label:'Entradas',data:dem.map(r=>r.e),backgroundColor:'#3b82f6',borderRadius:3,borderSkipped:false}},{{label:'Saídas',data:dem.map(r=>r.x),backgroundColor:'#10b981',borderRadius:3,borderSkipped:false}}],v=>v);
-mk('cRec','bar',dem.map(r=>r.s),[{{label:'R$',data:dem.map(r=>r.r),backgroundColor:'#8b5cf6',borderRadius:3,borderSkipped:false}}],v=>'R$'+v);
+mk('cOTP','bar',kpi.map(r=>r.l),
+  [{{label:'OTP%',data:kpi.map(r=>r.otp),backgroundColor:kpi.map(r=>C(r.sem)),borderRadius:3,borderSkipped:false}}],
+  v=>v+'%');
+mk('cDem','bar',dem.map(r=>r.s),
+  [{{label:'Entradas',data:dem.map(r=>r.e),backgroundColor:'#3b82f6',borderRadius:3,borderSkipped:false}},
+   {{label:'Saídas',data:dem.map(r=>r.x),backgroundColor:'#10b981',borderRadius:3,borderSkipped:false}}],
+  v=>v);
+mk('cRec','bar',dem.map(r=>r.s),
+  [{{label:'R$',data:dem.map(r=>r.r),backgroundColor:'#8b5cf6',borderRadius:3,borderSkipped:false}}],
+  v=>'R$'+v);
+// Verifica se os dados tëm mais de 24h e exibe aviso
+(function(){{
+  const gerado = new Date('{ts_iso}');
+  const horas  = (Date.now() - gerado) / 3600000;
+  if (horas > 24) {{
+    const w = document.getElementById('bwarn');
+    w.style.display = 'flex';
+    w.innerHTML = '⚠️ <strong>Dados desatualizados</strong> — gerado há ' +
+      Math.round(horas) + 'h. Execute <code>python pipeline_simples.py</code> para atualizar.';
+  }}
+}})();
 </script>
 </body>
 </html>"""
 
     out = Path("dashboard.html")
     out.write_text(html, encoding="utf-8")
-    print(f"  dashboard.html gerado  &rarr; abra no navegador ou hospede no GitHub Pages")
+    print(f"  dashboard.html gerado  →  abra no navegador ou hospede no GitHub Pages")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -400,7 +451,7 @@ if __name__ == "__main__":
 
     dt = (datetime.now() - t0).total_seconds()
     print(f"\n{SEP}")
-    print(f"  ✅  Concluído em {dt:.2f}s  ·  dependência: apenas duckdb")
+    print(f"  Concluído em {dt:.2f}s  ·  dependência: apenas duckdb")
     print(f"  Stack completa:  docker/docker-compose.yml")
     print(f"  Airflow DAG:     orchestration/dags/urbanflow_pipeline.py")
     print(f"  API REST:        serving/main.py  (GET /kpis/operacional)")
