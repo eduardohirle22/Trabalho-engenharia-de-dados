@@ -168,7 +168,7 @@ urbanflow-dataeng/
 
 | Aspecto                     | Implementação                                                                                         |
 | --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **LGPD — dados pessoais**   | `card_id` nunca persiste — substituído por `card_hash` (SHA-256 + salt) no momento da ingestão       |
+| **Anonimização (boa prática)** | `card_id` → `card_hash` (SHA-256 + salt). **LGPD não se aplica** a este projeto — dados 100% sintéticos, sem PII real. Hashing implementado como prática defensiva de segurança |
 | **Criptografia em trânsito**| TLS obrigatório em produção (MinIO, Postgres, API). Em ambiente local (POC), desativado intencionalmente — sem dados reais |
 | **Criptografia em repouso** | Parquet Snappy (compressão, não criptografia). Em produção: MinIO Server-Side Encryption (SSE-S3) recomendado |
 | **Credenciais**              | Variáveis de ambiente + `.env.example`; sem secrets hardcoded no código                              |
@@ -316,7 +316,7 @@ Dois testes adicionais para `semaforo_otp` e `periodo_dia` após valores inesper
 | ✅ Governança dos dados                                       | Implementado | `docs/seguranca_governanca.md`                          |
 | ✅ Metadados / dicionário de dados                            | Implementado | `docs/dicionario_dados.md`                              |
 | ✅ Verificação da qualidade dos dados                         | Implementado | ETL quarentena + 28 testes dbt + `pipeline_simples.py`  |
-| ✅ Segurança: SHA-256 LGPD + auditoria                        | Implementado | `simulador_catracas.py` + metadados Silver              |
+| ✅ Segurança: SHA-256 + auditoria (boa prática)              | Implementado | `simulador_catracas.py` + metadados Silver              |
 | ✅ Diagrama As-Built                                          | Este README  | seção "O Projeto"                                       |
 | ✅ Relatório de Mudanças                                      | Este README  | seção "Relatório de Mudanças"                           }
 | ✅ Instruções de reprodução                                   | Este README  | seção "Como Rodar"                                      |
