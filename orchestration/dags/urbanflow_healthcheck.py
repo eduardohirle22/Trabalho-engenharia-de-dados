@@ -4,8 +4,13 @@ urbanflow_healthcheck.py -- DAG de monitoramento continuo dos servicos UrbanFlow
 Executa a cada 5 minutos e verifica:
   - MinIO (object storage Bronze/Silver/Gold)
   - PostgreSQL Airflow e PostgreSQL legado
+  - API FastAPI de serving (endpoint /health)
   - Espaco em disco no volume airflow-data
   - Freshness dos dados no Silver (< 2 horas)
+
+Se qualquer servico critico cair, alem da task ficar VERMELHA no Airflow UI,
+um alerta e enviado pelos canais configurados (webhook/e-mail) via urbanflow_notify,
+com fallback para log.critical. Assim a equipe e avisada mesmo sem olhar a UI.
 
 Se uma task ficar vermelha: docker compose ps / docker compose logs <servico>
 """
@@ -19,13 +24,33 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
+import urbanflow_notify as notify
+
 log      = logging.getLogger("urbanflow.healthcheck")
 MINIO_EP = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+API_URL  = os.getenv("API_HEALTH_URL", "http://serving:8000/health")
+
+
+def _callback_falha_health(context):
+    """Notifica externamente quando uma checagem de saude falha."""
+    ti = context["task_instance"]
+    notify.enviar_alerta(
+        titulo=f"Servico indisponivel — {ti.task_id}",
+        corpo=(
+            f"A checagem '{ti.task_id}' do healthcheck FALHOU.\n"
+            f"Excecao: {context.get('exception', 'sem detalhes')}\n"
+            f"Log URL: {ti.log_url}\n"
+            f"Acao: docker compose ps / docker compose logs <servico>"
+        ),
+        nivel=notify.CRITICAL,
+    )
+
 
 DEFAULT_ARGS = {
-    "owner":            "urbanflow",
-    "retries":          0,
-    "email_on_failure": False,
+    "owner":              "urbanflow",
+    "retries":            0,
+    "email_on_failure":   False,
+    "on_failure_callback": _callback_falha_health,
 }
 
 
@@ -94,6 +119,24 @@ def checar_postgres_legado(**context):
         return {"status": "ONLINE", "tabelas": n_tabelas}
     except Exception as e:
         msg = f"PostgreSQL Legado OFFLINE: {e}"
+        log.critical(msg)
+        raise RuntimeError(msg)
+
+
+def checar_api(**context):
+    """
+    Verifica se a API FastAPI de serving esta respondendo no endpoint /health.
+    Task fica VERMELHA (e dispara alerta) se a API estiver fora do ar.
+    """
+    import urllib.request
+    try:
+        with urllib.request.urlopen(API_URL, timeout=10) as resp:
+            if 200 <= resp.status < 300:
+                log.info(f"API FastAPI ONLINE -- {API_URL} ({resp.status})")
+                return {"status": "ONLINE", "endpoint": API_URL, "http": resp.status}
+            raise RuntimeError(f"API respondeu HTTP {resp.status}")
+    except Exception as e:
+        msg = f"API FastAPI OFFLINE ({API_URL}): {e}"
         log.critical(msg)
         raise RuntimeError(msg)
 
@@ -175,8 +218,9 @@ with DAG(
     t_minio   = PythonOperator(task_id="checar_minio",           python_callable=checar_minio)
     t_pg      = PythonOperator(task_id="checar_postgres",        python_callable=checar_postgres)
     t_pg_leg  = PythonOperator(task_id="checar_postgres_legado", python_callable=checar_postgres_legado)
+    t_api     = PythonOperator(task_id="checar_api",             python_callable=checar_api)
     t_disco   = PythonOperator(task_id="checar_disco",           python_callable=checar_disco)
     t_fresh   = PythonOperator(task_id="checar_silver_freshness",python_callable=checar_silver_freshness)
 
     # Todas as tasks rodam em paralelo -- independentes
-    [t_minio, t_pg, t_pg_leg, t_disco, t_fresh]
+    [t_minio, t_pg, t_pg_leg, t_api, t_disco, t_fresh]
