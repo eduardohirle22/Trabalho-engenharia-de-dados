@@ -13,10 +13,16 @@ Estrutura:
   8. notifica_sucesso      — log de conclusão + métricas consolidadas
 
 Monitoramento:
-  - on_failure_callback: alerta CRITICAL em qualquer falha de task
-  - sla_miss_callback: alerta quando task ultrapassa 2h
+  - on_failure_callback: notificação externa (webhook/e-mail) em qualquer falha de task
+  - sla_miss_callback: notificação quando task ultrapassa 2h
   - verificar_servicos: bloqueia pipeline se MinIO ou Postgres offline
   - verificar_qualidade: valida volume, nulos, duplicatas e regras de negócio
+    Em caso de reprovação de qualidade, dispara alerta WARNING via urbanflow_notify.
+
+Canais de notificação (ver urbanflow_notify.py e .env.example):
+  - ALERT_WEBHOOK_URL  → Slack / Discord / Teams
+  - SMTP_*             → e-mail
+  - Sem configuração   → fallback para log.critical (auditável)
 """
 
 from __future__ import annotations
@@ -34,6 +40,10 @@ from airflow.operators.bash import BashOperator
 from airflow.models import Variable
 from airflow.utils.log.logging_mixin import LoggingMixin
 
+# Modulo compartilhado de notificacao (webhook/e-mail com fallback para log).
+# Esta no mesmo diretorio de DAGs, portanto importavel diretamente pelo Airflow.
+import urbanflow_notify as notify
+
 logger = LoggingMixin().log
 log    = logging.getLogger("urbanflow.pipeline")
 
@@ -49,8 +59,8 @@ MINIO_EP     = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 def _callback_falha(context):
     """
     Disparado automaticamente quando QUALQUER task falha.
-    Registra alerta CRITICAL com contexto completo da falha.
-    Extensível para Slack, e-mail, PagerDuty — ver comentários abaixo.
+    Monta um alerta CRITICAL com contexto completo e envia pelos canais
+    configurados (webhook/e-mail), com fallback para log.critical.
     """
     ti        = context["task_instance"]
     dag_id    = context["dag"].dag_id
@@ -59,21 +69,19 @@ def _callback_falha(context):
     exception = context.get("exception", "sem detalhes")
     log_url   = ti.log_url
 
-    mensagem = (
-        f"\n{'='*60}\n"
-        f"  ALERTA DE FALHA - UrbanFlow Pipeline\n"
-        f"{'='*60}\n"
-        f"  DAG      : {dag_id}\n"
-        f"  Task     : {task_id}\n"
-        f"  Data/Hora: {exec_date}\n"
-        f"  Excecao  : {exception}\n"
-        f"  Log URL  : {log_url}\n"
-        f"{'='*60}"
+    corpo = (
+        f"DAG      : {dag_id}\n"
+        f"Task     : {task_id}\n"
+        f"Data/Hora: {exec_date}\n"
+        f"Tentativa: {ti.try_number}\n"
+        f"Excecao  : {exception}\n"
+        f"Log URL  : {log_url}"
     )
-    log.critical(mensagem)
-    # Extensao futura: descomentar para notificacao externa
-    # import requests
-    # requests.post(os.getenv("SLACK_WEBHOOK_URL", ""), json={"text": mensagem})
+    notify.enviar_alerta(
+        titulo="Falha no pipeline UrbanFlow",
+        corpo=corpo,
+        nivel=notify.CRITICAL,
+    )
 
 
 def _callback_sla_miss(dag, task_list, blocking_task_list, slas, blocking_tis):
@@ -82,8 +90,10 @@ def _callback_sla_miss(dag, task_list, blocking_task_list, slas, blocking_tis):
     Indica que o pipeline esta mais lento que o esperado.
     """
     tarefas = [sla.task_id for sla in slas]
-    log.warning(
-        f"SLA VIOLADO - UrbanFlow Pipeline | DAG: {dag.dag_id} | Tasks: {tarefas}"
+    notify.enviar_alerta(
+        titulo="SLA violado no pipeline UrbanFlow",
+        corpo=f"DAG: {dag.dag_id}\nTasks que excederam 2h: {tarefas}",
+        nivel=notify.WARNING,
     )
 
 
@@ -242,6 +252,16 @@ def task_verificar_qualidade(**context):
 
     for a in alertas:
         log.warning(a)
+
+    # Se houve qualquer alerta de qualidade, notifica externamente (WARNING).
+    # Decisao de design: NAO interrompe o pipeline (nao perde dado operacional),
+    # mas registra e notifica para acao humana. A barreira rigida sao os testes dbt.
+    if alertas:
+        notify.enviar_alerta(
+            titulo=f"Qualidade de dados — {len(alertas)} alerta(s) no Silver",
+            corpo="\n".join(alertas),
+            nivel=notify.WARNING,
+        )
 
     log.info(f"  Qualidade verificada — {len(alertas)} alerta(s)")
     context["ti"].xcom_push(key="qualidade_resultados", value=json.dumps(resultados, default=str))
