@@ -29,6 +29,82 @@ Banco Legado PG  ──┤──▶  Bronze (MinIO)  ──▶  Silver (Parquet)
 
 ---
 
+## Arquitetura (As-Built)
+
+```mermaid
+flowchart LR
+    subgraph FONTES["Fontes de Dados"]
+        GPS["Simulador GPS<br/>~300 veículos/ciclo"]
+        CAT["Simulador Catracas<br/>18 estações VLT"]
+        BIKE["Simulador Bikes<br/>30 estações"]
+        PG[("PostgreSQL Legado<br/>5.000 viagens")]
+    end
+
+    subgraph INGEST["Ingestão / Orquestração — Apache Airflow"]
+        DAG["DAG urbanflow_pipeline<br/>@hourly · retries + backoff"]
+        QUAL["Task verificar_qualidade<br/>volume · nulos · regras"]
+    end
+
+    subgraph LAKE["Data Lake — MinIO (S3) + Parquet"]
+        BRONZE[("🥉 Bronze<br/>JSON imutável<br/>retenção 7d")]
+        SILVER[("🥈 Silver<br/>Parquet Snappy<br/>retenção 30d")]
+        QUAR[("Quarentena<br/>_motivo_rejeicao")]
+    end
+
+    subgraph TRANSF["Transformação — dbt Core + DuckDB"]
+        DBTRUN["dbt run<br/>5 modelos"]
+        DBTTEST["dbt test<br/>28 testes de qualidade"]
+        GOLD[("🥇 Gold<br/>DuckDB · Star Schema<br/>retenção 90d")]
+    end
+
+    subgraph SERV["Serving"]
+        API["API FastAPI<br/>6 endpoints + Swagger"]
+        DASH["dashboard.html<br/>POC local"]
+    end
+
+    subgraph MON["Monitoramento & Alertas"]
+        HC["DAG urbanflow_healthcheck<br/>a cada 5 min"]
+        WD["watchdog_airflow.py<br/>vigia externo do Airflow"]
+        NOTIFY{{"urbanflow_notify<br/>webhook · e-mail · log"}}
+    end
+
+    GPS --> DAG
+    CAT --> DAG
+    BIKE --> DAG
+    PG --> DAG
+
+    DAG --> BRONZE
+    BRONZE --> DAG
+    DAG --> SILVER
+    DAG -.registros inválidos.-> QUAR
+    DAG --> QUAL
+    QUAL --> DBTRUN
+    DBTRUN --> GOLD
+    DBTRUN --> DBTTEST
+    DBTTEST --> GOLD
+
+    GOLD --> API
+    SILVER --> DASH
+    GOLD --> DASH
+
+    HC -. monitora .-> BRONZE
+    HC -. monitora .-> SILVER
+    HC -. monitora .-> API
+    HC -. monitora .-> PG
+    WD -. monitora .-> DAG
+
+    DAG -- falha/SLA --> NOTIFY
+    QUAL -- alerta qualidade --> NOTIFY
+    HC -- serviço offline --> NOTIFY
+    WD -- Airflow caiu --> NOTIFY
+    NOTIFY -.->|Slack/Discord/Teams| OPS["👤 Equipe de Operações"]
+    NOTIFY -.->|e-mail| OPS
+```
+
+**Como ler o diagrama:** o fluxo principal (setas cheias) segue o padrão Medalhão — as fontes alimentam o Airflow, que materializa Bronze → Silver → Gold, e o Gold é servido pela API. As setas pontilhadas são o plano de monitoramento: a DAG de healthcheck vigia os serviços, o watchdog externo vigia o próprio Airflow, e **toda anomalia converge para um único módulo de notificação** (`urbanflow_notify`) que entrega o alerta por webhook, e-mail ou log.
+
+---
+
 ## Stack Tecnológica — As-Built
 
 | Camada                 | Tecnologia                | Função                                                                         |
@@ -111,9 +187,11 @@ urbanflow-dataeng/
 │   └── init_postgres.sql                 ← Banco legado: 5.000 viagens sintéticas
 │
 ├── orchestration/
-│   └── dags/
-│       ├── urbanflow_pipeline.py         ← DAG principal (@hourly, 6 tasks, alertas)
-│       └── urbanflow_healthcheck.py      ← DAG de monitoramento (a cada 5 min)
+│   ├── dags/
+│   │   ├── urbanflow_pipeline.py         ← DAG principal (@hourly, alertas externos)
+│   │   ├── urbanflow_healthcheck.py      ← DAG de monitoramento (a cada 5 min)
+│   │   └── urbanflow_notify.py           ← Módulo de notificação (webhook/e-mail/log)
+│   └── watchdog_airflow.py               ← Vigia externo: alerta se o Airflow cair
 │
 ├── dbt_project/
 │   ├── dbt_project.yml
@@ -142,39 +220,61 @@ urbanflow-dataeng/
 
 ## Monitoramento e Alertas
 
-### DAG Principal — Alertas de Falha (`urbanflow_pipeline.py`)
+O sistema tem **três camadas de vigilância**, todas convergindo para um módulo único de notificação (`orchestration/dags/urbanflow_notify.py`).
 
-- **`on_failure_callback`** configurado em todas as 6 tasks: ao falhar, dispara e-mail + log com task_id, execution_date e exception
-- **`on_success_callback`** na task final: confirma execução completa via log
-- **Retries:** 2 tentativas com backoff exponencial antes de acionar o alerta
+### Módulo de notificação — `urbanflow_notify.py`
 
-### DAG de Health Check (`urbanflow_healthcheck.py`)
+Ponto de entrada único `enviar_alerta(titulo, corpo, nivel)`. Tenta, em ordem e de forma best-effort:
+
+1. **Webhook** (Slack / Discord / Teams / Mattermost) — se `ALERT_WEBHOOK_URL` estiver definido
+2. **E-mail SMTP** — se `SMTP_HOST` + `ALERT_EMAIL_TO` estiverem definidos
+3. **Fallback para `log.critical`** — se nenhum canal estiver configurado, o alerta ainda fica registrado de forma auditável
+
+> **Importante (decisão de design):** os canais externos são *opt-in* via `.env`. Sem configuração, o sistema **não quebra** — ele degrada para log. Uma falha ao notificar nunca derruba o pipeline (toda exceção de envio é capturada e logada). Para a apresentação ao vivo, basta colar uma URL de webhook do Slack/Discord no `.env` para ver o alerta chegar no canal.
+
+### Camada 1 — DAG principal (`urbanflow_pipeline.py`)
+
+- **`on_failure_callback`** em todas as tasks: qualquer falha monta um alerta CRITICAL (DAG, task, tentativa, exceção, URL do log) e chama `enviar_alerta`
+- **`sla_miss_callback`**: dispara alerta WARNING se uma task ultrapassar o SLA de 2h
+- **Alerta de qualidade**: a task `verificar_qualidade` dispara um WARNING externo quando encontra problemas nos dados Silver (volume, nulos, duplicatas, regras de negócio)
+- **Retries:** 2 tentativas com backoff exponencial antes de acionar o alerta de falha
+
+### Camada 2 — DAG de health check (`urbanflow_healthcheck.py`)
 
 - **Schedule:** `*/5 * * * *` (a cada 5 minutos)
-- Verifica se o pipeline principal (`urbanflow_pipeline`) está ativo e sem falhas recentes
-- Checa acessibilidade dos serviços: MinIO, PostgreSQL e API FastAPI
-- Alerta imediato se qualquer serviço cair ou se o Airflow não registrar execução nas últimas 2 horas
-- Registra métricas de uptime em log auditável
+- Checa em paralelo: **MinIO**, **PostgreSQL (Airflow)**, **PostgreSQL legado**, **API FastAPI** (`/health`), **espaço em disco** e **freshness do Silver** (detecta pipeline parado mesmo com serviços online)
+- Se qualquer checagem falha, além da task ficar vermelha na UI, o `on_failure_callback` envia alerta externo
+
+### Camada 3 — Watchdog externo do Airflow (`watchdog_airflow.py`)
+
+Resolve o ponto cego clássico: **se o próprio scheduler do Airflow cair, nenhuma DAG roda — nem o healthcheck.** Por isso este script roda **fora** do Airflow (cron do host ou container separado), consulta o endpoint `/health` do Airflow e dispara alerta se o webserver/scheduler estiver inacessível ou degradado.
+
+```bash
+# Cron do host a cada 2 minutos:
+*/2 * * * * cd /caminho/projeto && python3 orchestration/watchdog_airflow.py
+```
 
 ### Dashboard HTML (`pipeline_simples.py`)
 
-- **Banner verde** quando o pipeline executou com sucesso
-- **Banner amarelo** quando os dados têm mais de 24h sem atualização (dados desatualizados)
-- **Banner azul** informa que os dados são gerados offline e orienta sobre o Airflow live
+Banner **verde** (sucesso), **amarelo** (dados com +24h, desatualizados) e **azul** (dados gerados offline) — feedback visual imediato na POC local.
 
 ---
 
 ## Segurança e Criptografia
 
-| Aspecto                     | Implementação                                                                                         |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Anonimização (boa prática)** | `card_id` → `card_hash` (SHA-256 + salt). **LGPD não se aplica** a este projeto — dados 100% sintéticos, sem PII real. Hashing implementado como prática defensiva de segurança |
-| **Criptografia em trânsito**| TLS obrigatório em produção (MinIO, Postgres, API). Em ambiente local (POC), desativado intencionalmente — sem dados reais |
-| **Criptografia em repouso** | Parquet Snappy (compressão, não criptografia). Em produção: MinIO Server-Side Encryption (SSE-S3) recomendado |
-| **Credenciais**              | Variáveis de ambiente + `.env.example`; sem secrets hardcoded no código                              |
-| **Quarentena**               | Registros inválidos isolados com `_motivo_rejeicao`, nunca misturados com dados válidos               |
-| **Auditoria**                | Bronze imutável; metadados `_processed_at` e `_source` em todo registro Silver                       |
+| Aspecto | Implementação |
+| --- | --- |
+| **Criptografia de credenciais (ATIVA)** | Airflow usa **Fernet (AES-128-CBC)** para criptografar senhas de conexão, tokens e variáveis sensíveis no banco de metadados (`AIRFLOW__CORE__FERNET_KEY`) |
+| **Criptografia em repouso (NÃO ativa — justificada)** | PostgreSQL e MinIO sem criptografia em repouso: dados de mobilidade pública **sem PII**, containers isolados, sem porta externa. Para produção: LUKS/dm-crypt no host, MinIO SSE-S3 com KES + Vault/KMS |
+| **Criptografia em trânsito (NÃO ativa — justificada)** | Comunicação interna pela rede Docker e UI em localhost. Para produção com acesso remoto: nginx reverse proxy com TLS/HTTPS |
+| **Anonimização (boa prática)** | `card_id` → `card_hash` (SHA-256 + salt). LGPD não se aplica (dados sintéticos, sem PII), mas o hashing é implementado como prática defensiva |
+| **Credenciais** | Exclusivamente via `.env` (no `.gitignore`); sem secrets hardcoded |
+| **Controle de acesso** | Airflow com roles (Admin/User/Viewer/Op); MinIO Access/Secret Key, buckets privados; usuário read-only no banco legado (menor privilégio) |
+| **Quarentena** | Registros inválidos isolados com `_motivo_rejeicao`, nunca misturados aos válidos |
+| **Auditoria** | Bronze imutável; metadados `_processed_at`, `_source`, `_pipeline_ver` em todo registro Silver |
 
+> A tabela acima responde diretamente ao critério *"se precisam de criptografia, caso contrário deixar especificado"*: **o que é criptografado** (Fernet), **o que não é e por quê** (repouso e trânsito, com justificativa de ausência de PII e ambiente isolado), e **o caminho de produção** para cada caso.
+>
 > 📄 Detalhamento completo: [`docs/seguranca_governanca.md`](docs/seguranca_governanca.md)
 
 ---
@@ -244,8 +344,9 @@ batch_postgres ──╯
 
 - **Schedule:** `0 * * * *` (a cada hora)
 - **Retries:** 2 tentativas com backoff exponencial
-- **Alertas:** e-mail + log em caso de falha em qualquer task
+- **Alertas:** webhook/e-mail (com fallback para log) em caso de falha em qualquer task, via `urbanflow_notify`
 - **Health Check:** DAG separada (`urbanflow_healthcheck`) roda a cada 5 min
+- **Watchdog externo:** `watchdog_airflow.py` alerta se o próprio Airflow cair
 
 ---
 
@@ -296,6 +397,11 @@ Documentação interativa: `http://localhost:8000/docs` (Swagger UI)
 
 Dois testes adicionais para `semaforo_otp` e `periodo_dia` após valores inesperados identificados durante os testes.
 
+### 7. Notificação externa real + watchdog do Airflow
+
+**Plano anterior:** alertas apenas em log; envio externo deixado como comentário.
+**Executado:** módulo `urbanflow_notify.py` centraliza notificação por webhook (Slack/Discord/Teams) e e-mail SMTP, com fallback para log. Os callbacks da DAG principal, a verificação de qualidade e o healthcheck passaram a usá-lo. Adicionado `watchdog_airflow.py`, vigia externo que alerta caso o próprio Airflow caia (ponto cego que as DAGs não cobrem). Healthcheck passou a checar também a API FastAPI.
+
 ---
 
 ## Critérios de Avaliação — Checklist
@@ -309,8 +415,8 @@ Dois testes adicionais para `semaforo_otp` e `periodo_dia` após valores inesper
 | ✅ Consumo: API FastAPI com endpoints                         | Implementado | `serving/main.py`                                       |
 | ✅ POC local sem Docker                                       | Implementado | `pipeline_simples.py`                                   |
 | ✅ Qualidade: 28 testes dbt + quarentena                      | Implementado | `dbt_project/models/schema.yml`                         |
-| ✅ Alerta de monitoramento do processo                        | Implementado | `orchestration/dags/urbanflow_pipeline.py` (callbacks)  |
-| ✅ Notificação caso o Airflow ou serviços caiam               | Implementado | `orchestration/dags/urbanflow_healthcheck.py`           |
+| ✅ Alerta de monitoramento do processo                        | Implementado | `urbanflow_pipeline.py` (callbacks) + `urbanflow_notify.py` |
+| ✅ Notificação caso o Airflow ou serviços caiam               | Implementado | `urbanflow_healthcheck.py` + `watchdog_airflow.py`      |
 | ✅ Segurança dos dados                                        | Implementado | `docs/seguranca_governanca.md`                          |
 | ✅ Criptografia (especificação e justificativa)               | Implementado | `docs/seguranca_governanca.md`                          |
 | ✅ Governança dos dados                                       | Implementado | `docs/seguranca_governanca.md`                          |
@@ -318,5 +424,5 @@ Dois testes adicionais para `semaforo_otp` e `periodo_dia` após valores inesper
 | ✅ Verificação da qualidade dos dados                         | Implementado | ETL quarentena + 28 testes dbt + `pipeline_simples.py`  |
 | ✅ Segurança: SHA-256 + auditoria (boa prática)              | Implementado | `simulador_catracas.py` + metadados Silver              |
 | ✅ Diagrama As-Built                                          | Este README  | seção "O Projeto"                                       |
-| ✅ Relatório de Mudanças                                      | Este README  | seção "Relatório de Mudanças"                           }
+| ✅ Relatório de Mudanças                                      | Este README  | seção "Relatório de Mudanças"                           |
 | ✅ Instruções de reprodução                                   | Este README  | seção "Como Rodar"                                      |
